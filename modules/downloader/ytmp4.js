@@ -1,4 +1,4 @@
-// modules/downloaders/ytmp4.js
+// modules/downloaders/ytmp4.js (FIXED WITH USER-AGENT)
 
 import axios from 'axios';
 import { sendMessage, sendVideo, react, editMessage, delay } from '../../helper.js';
@@ -9,6 +9,14 @@ export const category = 'Downloaders';
 export const description = 'Mengunduh video dari YouTube sebagai file MP4.';
 export const usage = `${config.BOT_PREFIX}ytmp4 <url_video_youtube>`;
 export const aliases = ['ytv', 'ytvideo'];
+
+// [PERBAIKAN] Menambahkan User-Agent untuk menghindari error 403 Forbidden
+const userAgents = [
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/109.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/109.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36',
+];
+const getRandomUserAgent = () => userAgents[Math.floor(Math.random() * userAgents.length)];
 
 // --- FUNGSI UTAMA COMMAND ---
 export default async function ytmp4(sock, message, args, query, sender) {
@@ -21,9 +29,11 @@ export default async function ytmp4(sock, message, args, query, sender) {
   const messageKey = waitingMsg.key;
 
   try {
+    const axiosConfig = { headers: { 'User-Agent': getRandomUserAgent() } };
+
     // ---- LANGKAH 1: MEMBUAT JOB DOWNLOAD ----
     const initialApiUrl = `https://szyrineapi.biz.id/api/youtube/download/mp4?url=${encodeURIComponent(query)}&apikey=${config.SZYRINE_API_KEY}`;
-    const { data: jobData } = await axios.get(initialApiUrl);
+    const { data: jobData } = await axios.get(initialApiUrl, axiosConfig); // <-- Ditambahkan User-Agent
 
     if (!jobData.result?.statusCheckUrl) {
       throw new Error(jobData.message || 'Gagal memulai job download. URL mungkin tidak valid.');
@@ -34,21 +44,20 @@ export default async function ytmp4(sock, message, args, query, sender) {
 
     // ---- LANGKAH 2: POLLING STATUS JOB ----
     let finalResult = null;
-    const maxAttempts = 30; // Timeout ~2.5 menit (30 x 5 detik)
+    const maxAttempts = 30;
 
     for (let i = 0; i < maxAttempts; i++) {
-      await delay(5000); // Tunggu 5 detik sebelum cek status lagi
+      await delay(5000);
 
-      const { data: statusData } = await axios.get(statusCheckUrl);
+      const { data: statusData } = await axios.get(statusCheckUrl, axiosConfig); // <-- Ditambahkan User-Agent
       const jobResult = statusData.result;
 
       if (jobResult?.status === 'completed') {
         finalResult = jobResult.result;
-        break; // Hentikan loop jika sudah selesai
+        break;
       } else if (jobResult?.status === 'failed' || jobResult?.status === 'error') {
         throw new Error(jobResult.message || 'Proses download gagal di server.');
       } else {
-        // Update status ke pengguna
         await editMessage(sock, sender, `⏳ Memproses video... (${i + 1}/${maxAttempts})`, messageKey);
       }
     }
