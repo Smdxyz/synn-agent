@@ -1,22 +1,17 @@
 // lib/og-downloader.js
-// Berisi logika inti hasil reverse-engineering dari ogmp3.pro
+// Versi upgrade yang menggunakan got-scraping untuk melewati anti-bot (misal: Cloudflare)
 
+import got from 'got-scraping'; // <-- GANTI AXIOS DENGAN INI
 import { randomBytes } from 'crypto';
-import axios from 'axios';
 
-// --- Konfigurasi & Fungsi Bawaan dari Skrip Asli ---
+// --- Konfigurasi & Fungsi Bawaan ---
+// Kita tetap pakai header yang lebih sederhana, karena got-scraping sudah handle sisanya.
 const HEADERS = {
     'accept': '*/*',
-    'accept-language': 'id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7',
+    'accept-language': 'id-ID,id;q=0.9',
     'content-type': 'application/json',
     'origin': 'https://ogmp3.pro',
     'referer': 'https://ogmp3.pro/',
-    'sec-ch-ua': '"Chromium";v="122", "Not(A:Brand";v="24", "Google Chrome";v="122"',
-    'sec-ch-ua-mobile': '?0',
-    'sec-ch-ua-platform': '"Windows"',
-    'sec-fetch-dest': 'empty',
-    'sec-fetch-mode': 'cors',
-    'sec-fetch-site': 'cross-site',
     'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
 };
 
@@ -67,10 +62,16 @@ export async function getDownloadLink(youtubeUrl, options = {}) {
     };
     const initUrl = `${apiEndpoint}/${ranHash()}/init/${encUrl(youtubeUrl)}/${ranHash()}/`;
     
-    const { data: initResponse } = await axios.post(initUrl, initPayload, {
+    // ================== PERUBAHAN UTAMA DI SINI ==================
+    const { body: initResponse } = await got.post(initUrl, {
+        json: initPayload, // <-- `got` menggunakan properti `json`
         headers: { ...HEADERS, authority: `${apiSubdomain}.apiapi.lat` },
-    }).catch(e => { throw new Error(`Gagal menghubungi server: ${e.message}`) });
-    
+    }).catch(e => {
+        // `got` melempar error yang lebih deskriptif
+        throw new Error(`Gagal menghubungi server: ${e.message}`);
+    });
+    // =============================================================
+
     if (!initResponse.i || initResponse.s === 'E' || initResponse.i === 'invalid') {
         let reason = 'Respons server tidak valid.';
         if (initResponse.le) reason = 'Video terlalu panjang untuk diproses.';
@@ -81,22 +82,26 @@ export async function getDownloadLink(youtubeUrl, options = {}) {
     const pk = initResponse.pk;
 
     // 2. === Polling Status ===
-    const maxRetries = 40; // Batas waktu sekitar 2-3 menit
+    const maxRetries = 40;
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
-        await delay(3500); // Jeda antar polling
+        await delay(3500);
 
         const statusUrl = `${apiEndpoint}/${ranHash()}/status/${uniqueId}/${ranHash()}/${pk}/`;
-        const { data: statusResponse } = await axios.post(statusUrl, { data: uniqueId }, {
+        
+        // ================== PERUBAHAN UTAMA DI SINI ==================
+        const { body: statusResponse } = await got.post(statusUrl, {
+            json: { data: uniqueId }, // <-- `got` menggunakan properti `json`
             headers: { ...HEADERS, authority: `${apiSubdomain}.apiapi.lat` },
-        }).catch(() => ({ data: { s: 'P' } })); // Jika error, anggap masih proses
+        }).catch(() => ({ body: { s: 'P' } })); // <-- Jika error, anggap masih proses
+        // =============================================================
 
-        if (statusResponse.s === 'C') { // Selesai
+        if (statusResponse.s === 'C') {
             if (onProgress) await onProgress('Konversi selesai!', attempt, maxRetries);
             const downloadUrl = `${apiEndpoint}/${ranHash()}/download/${uniqueId}/${ranHash()}/${pk}/`;
             return { title: statusResponse.t, downloadUrl };
-        } else if (statusResponse.s === 'P') { // Proses
+        } else if (statusResponse.s === 'P') {
              if (onProgress) await onProgress('Sedang memproses...', attempt, maxRetries);
-        } else { // Status aneh
+        } else {
             throw new Error(`Menerima status tidak terduga dari server: ${JSON.stringify(statusResponse)}`);
         }
     }
