@@ -2,7 +2,7 @@
 
 import { sendMessage, sendVideo, react, editMessage } from '../../helper.js';
 import { config } from '../../config.js';
-import { getDownloadLink } from '../../lib/og-downloader.js'; // <-- IMPORT LOGIKA BARU
+import { getDownloadLink } from '../../libs/og-downloader.js'; // <-- IMPORT LOGIKA BARU
 
 // --- METADATA COMMAND ---
 export const category = 'Downloaders';
