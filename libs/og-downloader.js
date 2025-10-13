@@ -1,7 +1,7 @@
 // lib/og-downloader.js
 // Versi upgrade yang menggunakan got-scraping untuk melewati anti-bot (misal: Cloudflare)
 
-import got from 'got-scraping'; // <-- GANTI AXIOS DENGAN INI
+import { got } from 'got-scraping'; // <-- GANTI AXIOS DENGAN INI
 import { randomBytes } from 'crypto';
 
 // --- Konfigurasi & Fungsi Bawaan ---
