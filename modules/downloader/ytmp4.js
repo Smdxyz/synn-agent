@@ -1,81 +1,56 @@
-// modules/downloaders/ytmp4.js (FIXED WITH USER-AGENT)
+// modules/downloaders/ytmp4.js
 
-import axios from 'axios';
-import { sendMessage, sendVideo, react, editMessage, delay } from '../../helper.js';
+import { sendMessage, sendVideo, react, editMessage } from '../../helper.js';
 import { config } from '../../config.js';
+import { getDownloadLink } from '../../lib/og-downloader.js'; // <-- IMPORT LOGIKA BARU
 
 // --- METADATA COMMAND ---
 export const category = 'Downloaders';
-export const description = 'Mengunduh video dari YouTube sebagai file MP4.';
+export const description = 'Mengunduh video dari YouTube sebagai file MP4 (metode baru).';
 export const usage = `${config.BOT_PREFIX}ytmp4 <url_video_youtube>`;
 export const aliases = ['ytv', 'ytvideo'];
 
-// [PERBAIKAN] Menambahkan User-Agent untuk menghindari error 403 Forbidden
-const userAgents = [
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/109.0.0.0 Safari/537.36',
-    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/109.0.0.0 Safari/537.36',
-    'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36',
-];
-const getRandomUserAgent = () => userAgents[Math.floor(Math.random() * userAgents.length)];
-
 // --- FUNGSI UTAMA COMMAND ---
 export default async function ytmp4(sock, message, args, query, sender) {
-  if (!query || (!query.includes('youtube.com') && !query.includes('youtu.be'))) {
-    return sendMessage(sock, sender, `Masukkan URL video YouTube yang valid.\n\n*Contoh:*\n${usage}`, { quoted: message });
-  }
-
-  await react(sock, sender, message.key, '📥');
-  const waitingMsg = await sendMessage(sock, sender, '⏳ Memulai proses download video YouTube...', { quoted: message });
-  const messageKey = waitingMsg.key;
-
-  try {
-    const axiosConfig = { headers: { 'User-Agent': getRandomUserAgent() } };
-
-    // ---- LANGKAH 1: MEMBUAT JOB DOWNLOAD ----
-    const initialApiUrl = `https://szyrineapi.biz.id/api/youtube/download/mp4?url=${encodeURIComponent(query)}&apikey=${config.SZYRINE_API_KEY}`;
-    const { data: jobData } = await axios.get(initialApiUrl, axiosConfig); // <-- Ditambahkan User-Agent
-
-    if (!jobData.result?.statusCheckUrl) {
-      throw new Error(jobData.message || 'Gagal memulai job download. URL mungkin tidak valid.');
+    if (!query || (!query.includes('youtube.com') && !query.includes('youtu.be'))) {
+        return sendMessage(sock, sender, `Masukkan URL video YouTube yang valid.\n\n*Contoh:*\n${usage}`, { quoted: message });
     }
 
-    const { statusCheckUrl } = jobData.result;
-    await editMessage(sock, sender, '✅ Job diterima! Memproses video...', messageKey);
+    await react(sock, sender, message.key, '🎬');
+    const waitingMsg = await sendMessage(sock, sender, '⏳ Memulai proses download video...', { quoted: message });
+    const messageKey = waitingMsg.key;
 
-    // ---- LANGKAH 2: POLLING STATUS JOB ----
-    let finalResult = null;
-    const maxAttempts = 30;
+    const animationFrames = ['[⠟]', '[⠯]', '[⠷]', '[⠾]', '[⠽]', '[⠻]'];
+    let lastEditTime = 0;
 
-    for (let i = 0; i < maxAttempts; i++) {
-      await delay(5000);
+    try {
+        const onProgress = async (status, attempt, max) => {
+            const now = Date.now();
+            // Batasi pengeditan pesan, maksimal setiap 2.5 detik untuk keamanan
+            if (now - lastEditTime > 2500) {
+                const frame = animationFrames[attempt % animationFrames.length];
+                const progressText = max > 0 ? `(${attempt}/${max})` : '';
+                await editMessage(sock, sender, `${frame} ${status} ${progressText}`, messageKey);
+                lastEditTime = now;
+            }
+        };
 
-      const { data: statusData } = await axios.get(statusCheckUrl, axiosConfig); // <-- Ditambahkan User-Agent
-      const jobResult = statusData.result;
+        const result = await getDownloadLink(query, { format: 'mp4', onProgress });
 
-      if (jobResult?.status === 'completed') {
-        finalResult = jobResult.result;
-        break;
-      } else if (jobResult?.status === 'failed' || jobResult?.status === 'error') {
-        throw new Error(jobResult.message || 'Proses download gagal di server.');
-      } else {
-        await editMessage(sock, sender, `⏳ Memproses video... (${i + 1}/${maxAttempts})`, messageKey);
-      }
+        if (result) {
+            const { title, downloadUrl } = result;
+            const caption = `*${title}*\n\n*${config.WATERMARK}*`;
+            
+            await editMessage(sock, sender, '📥 Mengirim file video...', messageKey);
+            await sendVideo(sock, sender, downloadUrl, caption, { quoted: message });
+            await editMessage(sock, sender, '✅ Video berhasil diunduh!', messageKey);
+        } else {
+            throw new Error('Gagal mendapatkan link download final.');
+        }
+
+    } catch (error) {
+        console.error("[YTMP4 DOWNLOADER] Error:", error.message);
+        const errorMessage = error.message || 'Terjadi kesalahan saat mengunduh video.';
+        await editMessage(sock, sender, `❌ Gagal: ${errorMessage}`, messageKey);
     }
-
-    // ---- LANGKAH 3: MENGIRIM HASIL ----
-    if (finalResult && finalResult.link) {
-      const { title, link: videoUrl } = finalResult;
-      const caption = `*${title}*\n\n*${config.WATERMARK}*`;
-      
-      await sendVideo(sock, sender, videoUrl, caption, { quoted: message });
-      await editMessage(sock, sender, '✅ Video berhasil diunduh!', messageKey);
-    } else {
-      throw new Error('Waktu pemrosesan habis (timeout). Coba lagi nanti.');
-    }
-
-  } catch (error) {
-    console.error("[YTMP4 DOWNLOADER] Error:", error.response ? error.response.data : error.message);
-    const errorMessage = error.message || 'Terjadi kesalahan saat mengunduh video.';
-    await editMessage(sock, sender, `❌ Gagal: ${errorMessage}`, messageKey);
-  }
 }
