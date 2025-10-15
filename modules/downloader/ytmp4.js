@@ -2,11 +2,11 @@
 
 import { sendMessage, sendVideo, react, editMessage } from '../../helper.js';
 import { config } from '../../config.js';
-import { getDownloadLink } from '../../libs/og-downloader.js'; // <-- IMPORT LOGIKA BARU
+import { yt } from '../../lib/og-downloader.js'; // <-- IMPORT LOGIKA BARU
 
 // --- METADATA COMMAND ---
 export const category = 'Downloaders';
-export const description = 'Mengunduh video dari YouTube sebagai file MP4 (metode baru).';
+export const description = 'Mengunduh video dari YouTube sebagai file MP4 (metode Wolep).';
 export const usage = `${config.BOT_PREFIX}ytmp4 <url_video_youtube>`;
 export const aliases = ['ytv', 'ytvideo'];
 
@@ -26,8 +26,7 @@ export default async function ytmp4(sock, message, args, query, sender) {
     try {
         const onProgress = async (status, attempt, max) => {
             const now = Date.now();
-            // Batasi pengeditan pesan, maksimal setiap 2.5 detik untuk keamanan
-            if (now - lastEditTime > 2500) {
+            if (now - lastEditTime > 2500) { // Batasi edit pesan
                 const frame = animationFrames[attempt % animationFrames.length];
                 const progressText = max > 0 ? `(${attempt}/${max})` : '';
                 await editMessage(sock, sender, `${frame} ${status} ${progressText}`, messageKey);
@@ -35,22 +34,18 @@ export default async function ytmp4(sock, message, args, query, sender) {
             }
         };
 
-        const result = await getDownloadLink(query, { format: 'mp4', onProgress });
+        // Memilih kualitas yang baik dan umum: '720p'
+        const result = await yt.download(query, '720p', onProgress);
+        
+        const { title, downloadUrl } = result;
+        const caption = `*${title}*\n\n*${config.WATERMARK}*`;
 
-        if (result) {
-            const { title, downloadUrl } = result;
-            const caption = `*${title}*\n\n*${config.WATERMARK}*`;
-            
-            await editMessage(sock, sender, '📥 Mengirim file video...', messageKey);
-            await sendVideo(sock, sender, downloadUrl, caption, { quoted: message });
-            await editMessage(sock, sender, '✅ Video berhasil diunduh!', messageKey);
-        } else {
-            throw new Error('Gagal mendapatkan link download final.');
-        }
+        await editMessage(sock, sender, '📥 Mengirim file video...', messageKey);
+        await sendVideo(sock, sender, downloadUrl, caption, { quoted: message });
+        await editMessage(sock, sender, '✅ Video berhasil diunduh!', messageKey);
 
     } catch (error) {
         console.error("[YTMP4 DOWNLOADER] Error:", error.message);
-        const errorMessage = error.message || 'Terjadi kesalahan saat mengunduh video.';
-        await editMessage(sock, sender, `❌ Gagal: ${errorMessage}`, messageKey);
+        await editMessage(sock, sender, `❌ Gagal: ${error.message}`, messageKey);
     }
 }

@@ -1,110 +1,129 @@
 // lib/og-downloader.js
-// Versi upgrade yang menggunakan got-scraping untuk melewati anti-bot (misal: Cloudflare)
+// Berisi logika inti dari skrip 'wolep' yang sudah diadaptasi untuk bot.
 
-import { got } from 'got-scraping'; // <-- GANTI AXIOS DENGAN INI
-import { randomBytes } from 'crypto';
+// Kita butuh 'fetch' yang stabil. Jika versi Node-mu di bawah 18, ini mungkin butuh polyfill.
+// Tapi karena Baileys modern butuh Node v18+, ini seharusnya aman.
 
-// --- Konfigurasi & Fungsi Bawaan ---
-// Kita tetap pakai header yang lebih sederhana, karena got-scraping sudah handle sisanya.
-const HEADERS = {
-    'accept': '*/*',
-    'accept-language': 'id-ID,id;q=0.9',
-    'content-type': 'application/json',
-    'origin': 'https://ogmp3.pro',
-    'referer': 'https://ogmp3.pro/',
-    'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-};
+export const yt = {
+    url: Object.freeze({
+        audio128: 'https://api.apiapi.lat',
+        video: 'https://api5.apiapi.lat',
+        else: 'https://api3.apiapi.lat',
+        referrer: 'https://ogmp3.pro/'
+    }),
 
-function ranHash() {
-    return randomBytes(16).toString('hex');
-}
+    encUrl: (string) => string.split('').map(c => c.charCodeAt()).reverse().join(';'),
+    xor: (string) => string.split('').map(s => String.fromCharCode(s.charCodeAt() ^ 1)).join(''),
+    genRandomHex: () => {
+        const hex = '0123456789abcdef'.split('');
+        return Array.from({ length: 32 }, _ => hex[Math.floor(Math.random() * hex.length)]).join('');
+    },
 
-function encodeDecode(url) {
-    let result = '';
-    for (let i = 0; i < url.length; i++) {
-        result += String.fromCharCode(url.charCodeAt(i) ^ 1);
-    }
-    return result;
-}
-
-function encUrl(url) {
-    const charCodes = [];
-    for (let i = 0; i < url.length; i++) {
-        charCodes.push(url.charCodeAt(i));
-    }
-    return charCodes.reverse().join(',');
-}
-
-const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
-
-/**
- * Fungsi utama untuk mendapatkan link download dari ogmp3.
- * @param {string} youtubeUrl - URL video YouTube.
- * @param {object} options - Opsi konversi.
- * @param {'mp3'|'mp4'} options.format - Format yang diinginkan.
- * @param {function(string, number, number): Promise<void>} [options.onProgress] - Callback untuk update progress.
- */
-export async function getDownloadLink(youtubeUrl, options = {}) {
-    const { format = 'mp3', onProgress } = options;
-    const formatId = format === 'mp4' ? '1' : '0';
-    const apiSubdomain = format === 'mp4' ? 'api5' : 'api3';
-    const apiEndpoint = `https://${apiSubdomain}.apiapi.lat`;
-
-    // 1. === Memulai Konversi ===
-    if (onProgress) await onProgress('Memulai konversi...', 0, 0);
-    const initPayload = {
-        data: encodeDecode(youtubeUrl),
-        format: formatId,
-        referer: 'https://www.google.com/',
-        mp3Quality: '320',
-        mp4Quality: '720',
-        userTimeZone: (new Date().getTimezoneOffset()).toString(),
-    };
-    const initUrl = `${apiEndpoint}/${ranHash()}/init/${encUrl(youtubeUrl)}/${ranHash()}/`;
-    
-    // ================== PERUBAHAN UTAMA DI SINI ==================
-    const { body: initResponse } = await got.post(initUrl, {
-        json: initPayload, // <-- `got` menggunakan properti `json`
-        headers: { ...HEADERS, authority: `${apiSubdomain}.apiapi.lat` },
-    }).catch(e => {
-        // `got` melempar error yang lebih deskriptif
-        throw new Error(`Gagal menghubungi server: ${e.message}`);
-    });
-    // =============================================================
-
-    if (!initResponse.i || initResponse.s === 'E' || initResponse.i === 'invalid') {
-        let reason = 'Respons server tidak valid.';
-        if (initResponse.le) reason = 'Video terlalu panjang untuk diproses.';
-        throw new Error(`Gagal memulai konversi. ${reason}`);
-    }
-
-    const uniqueId = initResponse.i;
-    const pk = initResponse.pk;
-
-    // 2. === Polling Status ===
-    const maxRetries = 40;
-    for (let attempt = 1; attempt <= maxRetries; attempt++) {
-        await delay(3500);
-
-        const statusUrl = `${apiEndpoint}/${ranHash()}/status/${uniqueId}/${ranHash()}/${pk}/`;
+    init: async function (rpObj) {
+        const { apiOrigin, payload } = rpObj;
+        const { data } = payload;
+        const api = `${apiOrigin}/${this.genRandomHex()}/init/${this.encUrl(this.xor(data))}/${this.genRandomHex()}/`;
         
-        // ================== PERUBAHAN UTAMA DI SINI ==================
-        const { body: statusResponse } = await got.post(statusUrl, {
-            json: { data: uniqueId }, // <-- `got` menggunakan properti `json`
-            headers: { ...HEADERS, authority: `${apiSubdomain}.apiapi.lat` },
-        }).catch(() => ({ body: { s: 'P' } })); // <-- Jika error, anggap masih proses
-        // =============================================================
+        const resp = await fetch(api, {
+            method: 'post',
+            headers: { 'Content-Type': 'application/json' }, // Header minimalis lebih aman
+            body: JSON.stringify(payload)
+        });
 
-        if (statusResponse.s === 'C') {
-            if (onProgress) await onProgress('Konversi selesai!', attempt, maxRetries);
-            const downloadUrl = `${apiEndpoint}/${ranHash()}/download/${uniqueId}/${ranHash()}/${pk}/`;
-            return { title: statusResponse.t, downloadUrl };
-        } else if (statusResponse.s === 'P') {
-             if (onProgress) await onProgress('Sedang memproses...', attempt, maxRetries);
+        if (!resp.ok) throw new Error(`Server merespons dengan status ${resp.status}`);
+        return resp.json();
+    },
+
+    genFileUrl: function (i, pk, rpObj) {
+        const { apiOrigin } = rpObj;
+        const pk_value = pk ? `${pk}/` : "";
+        const downloadUrl = `${apiOrigin}/${this.genRandomHex()}/download/${i}/${this.genRandomHex()}/${pk_value}`;
+        return { downloadUrl };
+    },
+
+    statusCheck: async function (i, pk, rpObj, onProgress) {
+        const { apiOrigin } = rpObj;
+        let json = {};
+        let attempt = 0;
+        const maxAttempts = 40;
+
+        do {
+            await new Promise(resolve => setTimeout(resolve, 4000)); // Jeda 4 detik
+            attempt++;
+            const pk_value = pk ? `${pk}/` : '';
+            const api = `${apiOrigin}/${this.genRandomHex()}/status/${i}/${this.genRandomHex()}/${pk_value}`;
+            
+            const resp = await fetch(api, {
+                method: 'post',
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ data: i })
+            });
+
+            if (!resp.ok) { // Jika polling gagal, coba lagi beberapa kali
+                if (attempt >= maxAttempts) throw new Error(`Pengecekan status gagal terus-menerus.`);
+                continue;
+            }
+            
+            json = await resp.json();
+            
+            // --- MODIFIKASI UNTUK BOT ---
+            if (onProgress) onProgress("Memeriksa status...", attempt, maxAttempts);
+            // -----------------------------
+
+        } while (json.s === "P" && attempt < maxAttempts);
+
+        if (json.s === "E") throw new Error('Konversi gagal di server.');
+        if (json.s !== "C") throw new Error('Waktu pemrosesan habis atau status tidak diketahui.');
+        
+        return this.genFileUrl(i, pk, rpObj);
+    },
+
+    download: async function (ytUrl, userFormat = '128k', onProgress) {
+        const rpObj = this.resolvePayload(ytUrl, userFormat);
+        if (onProgress) onProgress("Memulai permintaan...", 0, 0);
+
+        const initObj = await this.init(rpObj);
+        const { i, pk, s, t: title } = initObj;
+
+        if (!i) throw new Error("Gagal mendapatkan ID tugas dari server.");
+        if (onProgress) onProgress(`Mendapat ID Tugas: ${i.substring(0, 8)}...`, 0, 0);
+
+        let result = { userFormat, title };
+        let finalData;
+
+        if (s === 'C') {
+            finalData = this.genFileUrl(i, pk, rpObj);
         } else {
-            throw new Error(`Menerima status tidak terduga dari server: ${JSON.stringify(statusResponse)}`);
+            finalData = await this.statusCheck(i, pk, rpObj, onProgress);
         }
+        Object.assign(result, finalData);
+        return result;
+    },
+
+    resolvePayload: function (ytUrl, userFormat) {
+        const validFormat = ['64k', '96k', '128k', '192k', '256k', '320k', '240p', '360p', '480p', '720p', '1080p'];
+        if (!validFormat.includes(userFormat)) throw new Error(`Format tidak valid: ${userFormat}`);
+        if (typeof (ytUrl) !== "string" || !ytUrl.trim().length) throw new Error('URL YouTube tidak boleh kosong.');
+
+        let apiOrigin = this.url.audio128;
+        let data = this.xor(ytUrl);
+        let referer = this.url.referrer;
+        let format = '0'; // 0=audio
+        let mp3Quality = '128';
+        let mp4Quality = '720';
+
+        if (userFormat === '128k') {
+            apiOrigin = this.url.audio128;
+        } else if (/^\d+p$/.test(userFormat)) {
+            apiOrigin = this.url.video;
+            mp4Quality = userFormat.replace('p', '');
+            format = '1'; // 1=video
+        } else {
+            apiOrigin = this.url.else;
+            mp3Quality = userFormat.replace('k', '');
+        }
+        
+        const payload = { data, format, referer, mp3Quality, mp4Quality, "userTimeZone": "-480" };
+        return { apiOrigin, payload };
     }
-    
-    throw new Error('Waktu pemrosesan habis (timeout). Server terlalu lama merespons.');
-}
+};
