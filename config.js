@@ -8,5 +8,5 @@ export const config = {
   antiSpamKeywords: ["pinjol", "pinjaman online"],
   BOT_PREFIX: "!",
   WATERMARK: "Synn WhatsApp",
-  SZYRINE_API_KEY: "YOUR_API_KEY_HERE" // <-- TAMBAHKAN BARIS INI (Ganti dengan API Key Anda)
+  SZYRINE_API_KEY: "SANN21" // <-- TAMBAHKAN BARIS INI (Ganti dengan API Key Anda)
 };
