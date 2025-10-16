@@ -1,4 +1,4 @@
-// connection.js (UPGRADED WITH ROBUST RECONNECTION, MONITORING & HEALTH CHECK)
+// connection.js (FINAL UPGRADE: SELF-HEALING RESTART VIA PM2)
 
 import * as baileys from '@whiskeysockets/baileys';
 import pino from "pino";
@@ -6,15 +6,14 @@ import { Boom } from "@hapi/boom";
 import readline from "readline";
 import { onBotConnected, onBotDisconnected } from './monitoring.js';
 
-// Pengaturan untuk membaca input dari terminal
 const rl = readline.createInterface({
   input: process.stdin,
   output: process.stdout,
 });
 const question = (text) => new Promise((resolve) => rl.question(text, resolve));
 
-// Variabel untuk menyimpan interval health check
-let healthCheckIntervalId = null;
+// Tidak perlu lagi Health Check, karena kita akan restart total jika koneksi putus.
+// Ini adalah pendekatan yang lebih agresif tapi lebih efektif untuk lingkungan jaringan yang tidak stabil.
 
 export async function connectToWhatsApp() {
   const { state, saveCreds } = await baileys.useMultiFileAuthState("auth_info_baileys");
@@ -24,117 +23,64 @@ export async function connectToWhatsApp() {
     version,
     auth: state,
     printQRInTerminal: false,
-    logger: pino({ level: "info" }), // Ganti ke "info" di produksi agar log tidak terlalu ramai
-    // Tambahkan keep-alive untuk membantu menjaga koneksi
-    keepAliveIntervalMs: 30000 
+    logger: pino({ level: "info" }),
+    keepAliveIntervalMs: 30000,
+    // Menambahkan timeout koneksi. Jika gagal konek dalam 60 detik, akan error.
+    connectTimeoutMs: 60_000, 
   });
 
-  // Logika untuk Pairing Code
   if (!sock.authState.creds.registered) {
-    await new Promise(r => setTimeout(r, 1500)); 
-    
+    await new Promise(r => setTimeout(r, 1500));
     const phoneNumber = await question(
-      "\nMasukkan nomor WhatsApp Anda dengan kode negara (contoh: 6281234567890): "
+      "\nMasukkan nomor WhatsApp Anda (cth: 6281234567890): "
     );
     try {
       const code = await sock.requestPairingCode(phoneNumber);
-      console.log(`\n================================`);
-      console.log(` Kode Pairing Anda: ${code}`);
-      console.log(`================================\n`);
-      console.log("Buka WhatsApp di HP -> Perangkat Tertaut -> Tautkan dengan nomor -> Masukkan kode.");
+      console.log(`\n================================\n Kode Pairing Anda: ${code}\n================================\n`);
     } catch (error) {
       console.error("Gagal meminta kode pairing:", error);
-      rl.close();
+      // Keluar dari proses jika pairing gagal, agar PM2 bisa restart
+      process.exit(1);
     }
   }
 
   sock.ev.on("creds.update", saveCreds);
 
-  // --- LOGIKA KONEKSI YANG DI-UPGRADE ---
   sock.ev.on("connection.update", (update) => {
     const { connection, lastDisconnect } = update;
 
     if (connection === "open") {
       console.log("\n✅ Koneksi berhasil tersambung! Bot siap digunakan.\n");
-      onBotConnected(); // PANGGIL MONITORING SAAT KONEK
+      onBotConnected();
       if (!rl.closed) rl.close();
-
-      // ================== HEALTH CHECK DIMULAI DI SINI ==================
-      // Hentikan health check lama jika ada (untuk kasus reconnect)
-      if (healthCheckIntervalId) clearInterval(healthCheckIntervalId);
-
-      // Mulai health check rutin setiap 45 detik
-      console.log("🩺 [HEALTH CHECK] Memulai pemeriksa koneksi rutin...");
-      healthCheckIntervalId = setInterval(() => {
-        // Cek jika koneksi WebSocket masih dalam keadaan OPEN (kode state: 1)
-        if (sock.ws.readyState !== 1) {
-            console.error("🔥 [HEALTH CHECK] WebSocket tidak dalam keadaan OPEN. Memaksa reconnect...");
-            // Tutup koneksi secara paksa untuk memicu logika 'close' dan reconnect
-            sock.end(new Error("WebSocket state is not OPEN, forcing reconnect."));
-        }
-      }, 45 * 1000); // Setiap 45 detik
-      // =================== HEALTH CHECK BERAKHIR DI SINI ===================
-
-    } 
-    
-    else if (connection === "close") {
-      onBotDisconnected(); // PANGGIL MONITORING SAAT DISKONEK
-
-      // ================== PENTING: HENTIKAN HEALTH CHECK ==================
-      // Hentikan health check saat koneksi benar-benar terputus
-      if (healthCheckIntervalId) {
-        console.log("🩺 [HEALTH CHECK] Menghentikan pemeriksa koneksi.");
-        clearInterval(healthCheckIntervalId);
-        healthCheckIntervalId = null;
-      }
-      // =====================================================================
+    } else if (connection === "close") {
+      onBotDisconnected();
 
       const statusCode = (lastDisconnect.error instanceof Boom) ? lastDisconnect.error.output.statusCode : 500;
-      let shouldReconnect = true;
-      let reason = `Tidak diketahui: ${lastDisconnect.error?.message || 'Unknown Error'}`;
+      
+      // ================== INI PERUBAHAN UTAMANYA ==================
+      // Kita tidak lagi menggunakan shouldReconnect.
+      // Jika koneksi tertutup karena alasan APAPUN selain logout manual,
+      // kita akan menganggapnya fatal dan membiarkan PM2 me-restart seluruh proses.
+      
+      const isLogout = statusCode === baileys.DisconnectReason.loggedOut;
 
-      switch (statusCode) {
-        case baileys.DisconnectReason.badSession:
-          reason = "File Sesi Buruk, hapus folder 'auth_info_baileys' dan scan ulang.";
-          shouldReconnect = false;
-          break;
-        case baileys.DisconnectReason.connectionClosed:
-          reason = "Koneksi Ditutup, mencoba menyambungkan kembali...";
-          break;
-        case baileys.DisconnectReason.connectionLost:
-          reason = "Koneksi Terputus dari Server, mencoba menyambungkan kembali...";
-          break;
-        case baileys.DisconnectReason.connectionReplaced:
-          reason = "Koneksi Digantikan, sesi baru telah dibuka di tempat lain.";
-          shouldReconnect = false;
-          break;
-        case baileys.DisconnectReason.loggedOut:
-          reason = "Perangkat Telah Keluar (Logout), hapus 'auth_info_baileys' dan scan ulang.";
-          shouldReconnect = false;
-          break;
-        case baileys.DisconnectReason.restartRequired:
-          reason = "Diperlukan Restart, mencoba menyambungkan kembali...";
-          break;
-        case baileys.DisconnectReason.timedOut:
-          reason = "Koneksi Timeout, mencoba menyambungkan kembali...";
-          break;
-        case 401:
-           reason = "Tidak terautentikasi (401). Kemungkinan perlu pairing code ulang.";
-           shouldReconnect = true;
-           break;
-        default:
-          reason = `Kode Kesalahan ${statusCode}, mencoba menyambungkan kembali...`;
-          break;
-      }
-      
-      console.log(`❌ Koneksi terputus. Alasan: ${reason}`);
-      
-      if (shouldReconnect) {
-        console.log("Mencoba menyambung kembali dalam 5 detik...");
-        setTimeout(connectToWhatsApp, 5000);
+      if (isLogout) {
+        console.log("❌ Perangkat Telah Keluar (Logout). Hapus 'auth_info_baileys' dan scan ulang. Bot tidak akan restart.");
+        // Keluar dengan kode 0 (sukses) agar PM2 tidak restart
+        process.exit(0);
       } else {
-        console.log("Bot tidak akan menyambung kembali secara otomatis.");
+        const reason = lastDisconnect.error?.message || 'Unknown Error';
+        console.error(`❌ Koneksi terputus secara fatal. Alasan: ${reason}. Kode: ${statusCode}`);
+        console.log("🔥 Memulai restart penuh via PM2 dalam 5 detik...");
+        
+        // KELUAR DARI PROSES DENGAN KODE ERROR (1).
+        // PM2 akan mendeteksi ini sebagai "crash" dan secara otomatis
+        // akan me-restart seluruh aplikasi dari awal.
+        // Ini lebih efektif daripada `setTimeout`.
+        setTimeout(() => process.exit(1), 5000); 
       }
+      // ==========================================================
     }
   });
 
