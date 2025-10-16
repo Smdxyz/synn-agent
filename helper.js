@@ -3,7 +3,9 @@
 // Fitur generate thumbnail video telah DIMATIKAN secara permanen.
 
 import axios from 'axios';
-import { downloadContentFromMessage } from '@whiskeysockets/baileys'; // <-- BARIS INI PENTING
+import { downloadContentFromMessage } from '@whiskeysockets/baileys';
+import { config } from './config.js'; // <-- TAMBAHAN IMPORT UNTUK AKSES API KEY
+import FormData from 'form-data'; // <-- TAMBAHAN IMPORT UNTUK UPLOADIMAGE
 
 // ============================ UTILITAS DASAR =================================
 export const delay = (ms = 500) => new Promise((r) => setTimeout(r, ms));
@@ -170,21 +172,36 @@ export const typing = async (sock, jid, seconds = 1.25) => {
 // ============================ DOWNLOADER / MIME ============================
 
 /**
- * Mengunduh konten dari URL sebagai Buffer.
+ * Mengunduh konten dari URL sebagai Buffer, dengan header penyamaran.
+ * INI BAGIAN YANG DI-UPGRADE UNTUK MENGATASI ERROR 403.
  */
 export const fetchAsBufferWithMime = async (url) => {
-  const res = await axios.get(url, { responseType: 'arraybuffer', validateStatus: s => s >= 200 && s < 400 });
-  const mimetype = res.headers['content-type'] || '';
-  return { buffer: Buffer.from(res.data), mimetype };
+  try {
+    const res = await axios.get(url, { 
+        responseType: 'arraybuffer', 
+        validateStatus: s => s >= 200 && s < 400,
+        headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Connection': 'keep-alive',
+            'Upgrade-Insecure-Requests': '1'
+        }
+    });
+    const mimetype = res.headers['content-type'] || '';
+    return { buffer: Buffer.from(res.data), mimetype };
+  } catch (error) {
+    console.error(`Gagal fetch URL: ${url}`, error.message);
+    throw new Error(`Gagal mengunduh konten dari URL. Server merespon dengan status: ${error.response?.status}`);
+  }
 };
+
 
 /**
  * Mengunduh media (gambar/video/stiker) dari pesan.
  * Prioritas: Pesan saat ini -> Pesan yang di-reply.
- * @param {object} message Objek pesan Baileys.
- * @returns {Promise<Buffer|null>} Buffer media atau null jika gagal.
  */
-export const downloadMedia = async (message) => { // <-- INI DIA FUNGSINYA
+export const downloadMedia = async (message) => {
     let mediaMessage = message.message?.imageMessage || 
                        message.message?.videoMessage ||
                        message.message?.stickerMessage;
@@ -266,5 +283,5 @@ export default {
   setPresence, typing,
   // Downloader
   fetchAsBufferWithMime,
-  downloadMedia, // <-- PASTIKAN DIEKSPOR DI SINI JUGA
+  downloadMedia,
 };

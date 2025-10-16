@@ -1,10 +1,10 @@
-// connection.js (UPGRADED WITH ROBUST RECONNECTION & MONITORING)
+// connection.js (UPGRADED WITH ROBUST RECONNECTION, MONITORING & HEALTH CHECK)
 
 import * as baileys from '@whiskeysockets/baileys';
 import pino from "pino";
 import { Boom } from "@hapi/boom";
 import readline from "readline";
-import { onBotConnected, onBotDisconnected } from './monitoring.js'; // <-- IMPORT MONITORING
+import { onBotConnected, onBotDisconnected } from './monitoring.js';
 
 // Pengaturan untuk membaca input dari terminal
 const rl = readline.createInterface({
@@ -12,6 +12,9 @@ const rl = readline.createInterface({
   output: process.stdout,
 });
 const question = (text) => new Promise((resolve) => rl.question(text, resolve));
+
+// Variabel untuk menyimpan interval health check
+let healthCheckIntervalId = null;
 
 export async function connectToWhatsApp() {
   const { state, saveCreds } = await baileys.useMultiFileAuthState("auth_info_baileys");
@@ -21,7 +24,9 @@ export async function connectToWhatsApp() {
     version,
     auth: state,
     printQRInTerminal: false,
-    logger: pino({ level: "debug" }), // Logger tetap debug biar kelihatan prosesnya
+    logger: pino({ level: "info" }), // Ganti ke "info" di produksi agar log tidak terlalu ramai
+    // Tambahkan keep-alive untuk membantu menjaga koneksi
+    keepAliveIntervalMs: 30000 
   });
 
   // Logika untuk Pairing Code
@@ -41,7 +46,6 @@ export async function connectToWhatsApp() {
       console.error("Gagal meminta kode pairing:", error);
       rl.close();
     }
-    // Jangan tutup rl di sini, biarkan event 'open' yang menanganinya
   }
 
   sock.ev.on("creds.update", saveCreds);
@@ -52,12 +56,38 @@ export async function connectToWhatsApp() {
 
     if (connection === "open") {
       console.log("\n✅ Koneksi berhasil tersambung! Bot siap digunakan.\n");
-      onBotConnected(); // <-- PANGGIL MONITORING SAAT KONEK
-      if (!rl.closed) rl.close(); // Tutup readline interface jika masih terbuka
+      onBotConnected(); // PANGGIL MONITORING SAAT KONEK
+      if (!rl.closed) rl.close();
+
+      // ================== HEALTH CHECK DIMULAI DI SINI ==================
+      // Hentikan health check lama jika ada (untuk kasus reconnect)
+      if (healthCheckIntervalId) clearInterval(healthCheckIntervalId);
+
+      // Mulai health check rutin setiap 45 detik
+      console.log("🩺 [HEALTH CHECK] Memulai pemeriksa koneksi rutin...");
+      healthCheckIntervalId = setInterval(() => {
+        // Cek jika koneksi WebSocket masih dalam keadaan OPEN (kode state: 1)
+        if (sock.ws.readyState !== 1) {
+            console.error("🔥 [HEALTH CHECK] WebSocket tidak dalam keadaan OPEN. Memaksa reconnect...");
+            // Tutup koneksi secara paksa untuk memicu logika 'close' dan reconnect
+            sock.end(new Error("WebSocket state is not OPEN, forcing reconnect."));
+        }
+      }, 45 * 1000); // Setiap 45 detik
+      // =================== HEALTH CHECK BERAKHIR DI SINI ===================
+
     } 
     
     else if (connection === "close") {
-      onBotDisconnected(); // <-- PANGGIL MONITORING SAAT DISKONEK
+      onBotDisconnected(); // PANGGIL MONITORING SAAT DISKONEK
+
+      // ================== PENTING: HENTIKAN HEALTH CHECK ==================
+      // Hentikan health check saat koneksi benar-benar terputus
+      if (healthCheckIntervalId) {
+        console.log("🩺 [HEALTH CHECK] Menghentikan pemeriksa koneksi.");
+        clearInterval(healthCheckIntervalId);
+        healthCheckIntervalId = null;
+      }
+      // =====================================================================
 
       const statusCode = (lastDisconnect.error instanceof Boom) ? lastDisconnect.error.output.statusCode : 500;
       let shouldReconnect = true;
@@ -66,7 +96,7 @@ export async function connectToWhatsApp() {
       switch (statusCode) {
         case baileys.DisconnectReason.badSession:
           reason = "File Sesi Buruk, hapus folder 'auth_info_baileys' dan scan ulang.";
-          shouldReconnect = false; // Jangan reconnect, butuh tindakan manual
+          shouldReconnect = false;
           break;
         case baileys.DisconnectReason.connectionClosed:
           reason = "Koneksi Ditutup, mencoba menyambungkan kembali...";
@@ -88,9 +118,9 @@ export async function connectToWhatsApp() {
         case baileys.DisconnectReason.timedOut:
           reason = "Koneksi Timeout, mencoba menyambungkan kembali...";
           break;
-        case 401: // Unauthorized, sering terjadi jika butuh pairing code lagi
+        case 401:
            reason = "Tidak terautentikasi (401). Kemungkinan perlu pairing code ulang.";
-           shouldReconnect = true; // Coba sambungkan lagi, jika gagal terus user akan lihat lognya
+           shouldReconnect = true;
            break;
         default:
           reason = `Kode Kesalahan ${statusCode}, mencoba menyambungkan kembali...`;
@@ -101,7 +131,7 @@ export async function connectToWhatsApp() {
       
       if (shouldReconnect) {
         console.log("Mencoba menyambung kembali dalam 5 detik...");
-        setTimeout(connectToWhatsApp, 5000); // Beri jeda sebelum reconnect
+        setTimeout(connectToWhatsApp, 5000);
       } else {
         console.log("Bot tidak akan menyambung kembali secara otomatis.");
       }
