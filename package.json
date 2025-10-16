@@ -1,7 +1,7 @@
 {
   "name": "synn-agent",
   "version": "1.0.0",
-  "description": "Synn Agent - WhatsApp bot built with Baileys, Axios, and HE (ESM)",
+  "description": "Synn Agent - WhatsApp bot built with Baileys, Got, Axios, and HE (ESM)",
   "type": "module",
   "main": "index.js",
   "scripts": {
@@ -11,6 +11,8 @@
   "dependencies": {
     "@whiskeysockets/baileys": "github:Ryuu311/Whiskeysockets-Baileys",
     "axios": "^1.7.7",
+    "form-data": "^4.0.0",
+    "got": "^14.4.2",
     "he": "^1.2.0",
     "pino": "^9.5.0"
   },
