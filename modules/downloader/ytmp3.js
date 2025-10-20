@@ -5,7 +5,7 @@ import { config } from '../../config.js';
 import { sendMessage, sendAudio, editMessage, react } from '../../helper.js';
 
 // <-- PERBAIKAN PATH: Naik dua level lalu masuk ke folder 'libs'
-import { downloadYouTubeAudio } from '../../youtubeDownloader.js';
+import { downloadYouTubeAudio } from '../../libs/youtubeDownloader.js';
 
 function formatBytes(bytes, decimals = 2) {
     if (!+bytes) return '0 Bytes';
