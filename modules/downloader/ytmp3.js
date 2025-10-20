@@ -1,73 +1,60 @@
-// youtubeDownloader.js (PATH FIXED)
+// /modules/downloader/ytmp3.js (FINAL PATH FIXED)
 
-import got from 'got';
-// --- PERBAIKAN DI SINI ---
-import { sleep } from '../../helper.js'; // Menggunakan ../ untuk naik satu direktori
-import { config } from '../../config.js';   // Menggunakan ../ untuk naik satu direktori
+// <-- PERBAIKAN PATH: Naik dua level untuk menemukan file di root
+import { config } from '../../config.js';
+import { sendMessage, sendAudio, editMessage, react } from '../../helper.js';
 
-const userAgents = [
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/109.0.0.0 Safari/537.36',
-    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/109.0.0.0 Safari/537.36',
-];
-const getRandomUserAgent = () => userAgents[Math.floor(Math.random() * userAgents.length)];
+// <-- PERBAIKAN PATH: Naik dua level lalu masuk ke folder 'libs'
+import { downloadYouTubeAudio } from '../../youtubeDownloader.js';
 
-/**
- * Mengunduh audio dari URL YouTube menggunakan Szyrine API dengan pola job & status check.
- * @param {string} youtubeUrl URL video YouTube.
- * @param {function} onProgress Callback untuk melaporkan kemajuan, menerima string sebagai argumen.
- * @returns {Promise<{title: string, buffer: Buffer}>} Objek berisi judul dan buffer audio.
- */
-export async function downloadYouTubeAudio(youtubeUrl, onProgress = () => {}) {
-    if (!config.SZYRINE_API_KEY || config.SZYRINE_API_KEY === "YOUR_API_KEY_HERE") {
-        throw new Error('SZYRINE_API_KEY belum diatur di config.js');
+function formatBytes(bytes, decimals = 2) {
+    if (!+bytes) return '0 Bytes';
+    const k = 1024;
+    const dm = decimals < 0 ? 0 : decimals;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return `${parseFloat((bytes / Math.pow(k, i)).toFixed(dm))} ${sizes[i]}`;
+}
+
+export default async function(sock, message, args, query, sender, extras) {
+    const userUrl = query;
+
+    if (!userUrl || !/^(https?:\/\/)?(www\.)?(m\.)?(youtube\.com|youtu\.be)\/.+$/.test(userUrl)) {
+        return sendMessage(sock, sender, `Format salah.\nContoh: *${config.BOT_PREFIX}ytmp3 <url_youtube>*`, { quoted: message });
     }
+
+    const progressMessage = await sendMessage(sock, sender, '⏳ Oke, memproses MP3...', { quoted: message });
+    const editProgress = (text) => editMessage(sock, sender, text, progressMessage.key);
 
     try {
-        await onProgress('⏳ Memulai permintaan unduh...');
-        const initialApiUrl = `https://szyrineapi.biz.id/api/youtube/download/mp3?url=${encodeURIComponent(youtubeUrl)}&apikey=${config.SZYRINE_API_KEY}`;
-        const initialData = await got(initialApiUrl, { timeout: { request: 30000 } }).json();
+        await react(sock, sender, message.key, '⏳');
+        
+        const { title, buffer } = await downloadYouTubeAudio(userUrl, editProgress);
+        
+        await editProgress('✅ Audio berhasil diunduh. Mengirim ke kamu...');
+        const cleanTitle = title.replace(/[^\w\s.-]/gi, '') || 'youtube-audio';
 
-        if (initialData.result?.status !== 202 || !initialData.result.jobId) {
-            throw new Error(initialData.result?.message || 'Server gagal menerima permintaan unduh awal.');
-        }
+        await sendAudio(sock, sender, buffer, { 
+            ptt: false,
+            mimetype: 'audio/mpeg',
+            fileName: `${cleanTitle}.mp3`, 
+            quoted: message 
+        });
 
-        const { jobId, statusCheckUrl } = initialData.result;
-        await onProgress(`⏳ Pekerjaan diterima (ID: ${jobId.substring(0, 8)}). Memeriksa status...`);
-
-        let finalResult = null;
-        for (let i = 0; i < 30; i++) { // Coba selama ~2 menit (30 * 4 detik)
-            await sleep(4000);
-            const statusData = await got(statusCheckUrl, { timeout: { request: 15000 } }).json();
-            const { result: jobDetails } = statusData;
-
-            if (jobDetails?.status === 'completed') {
-                finalResult = statusData;
-                break;
-            } else if (jobDetails?.status === 'failed') {
-                throw new Error(jobDetails.message || 'Proses di server backend gagal.');
-            } else if (jobDetails.message && jobDetails.status === 'processing') {
-                await onProgress(`⏳ ${jobDetails.message}`);
-            }
-        }
-
-        if (!finalResult) {
-            throw new Error('Waktu tunggu habis. Server mungkin sibuk atau video terlalu panjang.');
-        }
-
-        const { link, title } = finalResult.result.result;
-        if (!link) throw new Error('API berhasil tapi tidak mengembalikan link download.');
-
-        await onProgress('✅ Link didapat! Mengunduh audio...');
-        const audioBuffer = await got(link, {
-            responseType: 'buffer',
-            timeout: { request: 300000 }, // 5 menit
-            headers: { 'User-Agent': getRandomUserAgent(), 'Referer': 'https://www.google.com/' }
-        }).buffer();
-
-        return { title, buffer: audioBuffer };
+        const fileSize = formatBytes(buffer.length);
+        const finalMessage = `✅ *Proses Selesai!*\n\n*Judul:* ${title}\n*Ukuran:* ${fileSize}`;
+            
+        await editProgress(finalMessage);
+        await react(sock, sender, message.key, '✅');
 
     } catch (error) {
-        console.error("[youtubeDownloader] Error:", error.message);
-        throw error;
+        console.error("Error di ytmp3:", error);
+        await editProgress(`❌ Aduh, gagal:\n${error.message}`);
+        await react(sock, sender, message.key, '❌');
     }
 }
+
+export const category = 'Downloaders';
+export const description = 'Mengunduh audio dari YouTube sebagai MP3.';
+export const usage = `${config.BOT_PREFIX}ytmp3 <url>`;
+export const aliases = ['ytvn', 'yta'];
