@@ -1,8 +1,9 @@
-// youtubeDownloader.js (FIXED & UPGRADED TO 'got')
+// youtubeDownloader.js (PATH FIXED)
 
 import got from 'got';
-import { sleep } from './helper.js'; // Menggunakan helper.js yang sudah ada
-import { config } from './config.js'; // Import config untuk API Key
+// --- PERBAIKAN DI SINI ---
+import { sleep } from '../helper.js'; // Menggunakan ../ untuk naik satu direktori
+import { config } from '../config.js';   // Menggunakan ../ untuk naik satu direktori
 
 const userAgents = [
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/109.0.0.0 Safari/537.36',
@@ -23,11 +24,9 @@ export async function downloadYouTubeAudio(youtubeUrl, onProgress = () => {}) {
 
     try {
         await onProgress('⏳ Memulai permintaan unduh...');
-        // --- PERUBAHAN 1: Menambahkan API Key ke URL ---
         const initialApiUrl = `https://szyrineapi.biz.id/api/youtube/download/mp3?url=${encodeURIComponent(youtubeUrl)}&apikey=${config.SZYRINE_API_KEY}`;
         const initialData = await got(initialApiUrl, { timeout: { request: 30000 } }).json();
 
-        // --- PERUBAHAN 2 (KRUSIAL): Memeriksa status di dalam object 'result' ---
         if (initialData.result?.status !== 202 || !initialData.result.jobId) {
             throw new Error(initialData.result?.message || 'Server gagal menerima permintaan unduh awal.');
         }
@@ -69,7 +68,6 @@ export async function downloadYouTubeAudio(youtubeUrl, onProgress = () => {}) {
 
     } catch (error) {
         console.error("[youtubeDownloader] Error:", error.message);
-        // Lempar kembali error agar bisa ditangkap oleh modul yang memanggil
         throw error;
     }
 }

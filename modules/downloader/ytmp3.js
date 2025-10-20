@@ -1,70 +1,73 @@
-// /modules/ytmp3.js (FINAL & ALWAYS MP3)
+// youtubeDownloader.js (PATH FIXED)
 
-import { config } from '../../config.js';
-// Pastikan path ke utils.js benar jika Anda memilikinya, jika tidak hapus baris ini
-// import { formatBytes } from '../../libs/utils.js'; 
-import { sendMessage, sendAudio, editMessage } from '../../helper.js';
-import { downloadYouTubeAudio } from '../../libs/youtubeDownloader.js';
+import got from 'got';
+// --- PERBAIKAN DI SINI ---
+import { sleep } from '../helper.js'; // Menggunakan ../ untuk naik satu direktori
+import { config } from '../config.js';   // Menggunakan ../ untuk naik satu direktori
 
-// Fungsi formatBytes jika Anda tidak punya file utils.js terpisah
-function formatBytes(bytes, decimals = 2) {
-    if (bytes === 0) return '0 Bytes';
-    const k = 1024;
-    const dm = decimals < 0 ? 0 : decimals;
-    const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB', 'PB', 'EB', 'ZB', 'YB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
-}
+const userAgents = [
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/109.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/109.0.0.0 Safari/537.36',
+];
+const getRandomUserAgent = () => userAgents[Math.floor(Math.random() * userAgents.length)];
 
-
-export default async function execute(sock, msg, args) {
-    const sender = msg.key.remoteJid;
-    const userUrl = args[0];
-    
-    // --- PERUBAHAN UTAMA ---
-    // Variabel ini sekarang diatur ke 'false' secara permanen.
-    // Bot tidak akan pernah mengirim voice note, bahkan jika command !ytvn digunakan.
-    const sendAsVoiceNote = false;
-
-    if (!userUrl || !/^(https?:\/\/)?(www\.)?(m\.)?(youtube\.com|youtu\.be)\/.+$/.test(userUrl)) {
-        return sendMessage(sock, sender, `Format salah.\nContoh: *${config.BOT_PREFIX}ytmp3 <url_youtube>*`, { quoted: msg });
+/**
+ * Mengunduh audio dari URL YouTube menggunakan Szyrine API dengan pola job & status check.
+ * @param {string} youtubeUrl URL video YouTube.
+ * @param {function} onProgress Callback untuk melaporkan kemajuan, menerima string sebagai argumen.
+ * @returns {Promise<{title: string, buffer: Buffer}>} Objek berisi judul dan buffer audio.
+ */
+export async function downloadYouTubeAudio(youtubeUrl, onProgress = () => {}) {
+    if (!config.SZYRINE_API_KEY || config.SZYRINE_API_KEY === "YOUR_API_KEY_HERE") {
+        throw new Error('SZYRINE_API_KEY belum diatur di config.js');
     }
-
-    // Pesan awal sekarang selalu untuk MP3
-    const initialMessage = '⏳ Oke, memproses MP3...';
-    const progressMessage = await sock.sendMessage(sender, { text: initialMessage }, { quoted: msg });
-    const editProgress = (text) => editMessage(sock, sender, text, progressMessage.key);
 
     try {
-        const { title, buffer } = await downloadYouTubeAudio(userUrl, editProgress);
-        
-        await editProgress('✅ Audio berhasil diunduh. Mengirim ke kamu...');
-        const cleanTitle = title.replace(/[^\w\s.-]/gi, '') || 'youtube-audio';
+        await onProgress('⏳ Memulai permintaan unduh...');
+        const initialApiUrl = `https://szyrineapi.biz.id/api/youtube/download/mp3?url=${encodeURIComponent(youtubeUrl)}&apikey=${config.SZYRINE_API_KEY}`;
+        const initialData = await got(initialApiUrl, { timeout: { request: 30000 } }).json();
 
-        // --- PERBAIKAN BUG UTAMA ---
-        // Panggilan fungsi sendAudio sudah diperbaiki.
-        // Properti 'ptt' (Push-to-Talk) sekarang berada di dalam objek options
-        // dan nilainya diambil dari variabel sendAsVoiceNote yang sudah kita set ke false.
-        await sendAudio(sock, sender, buffer, { 
-            ptt: sendAsVoiceNote, 
-            mimetype: 'audio/mp4', 
-            fileName: `${cleanTitle}.mp3`, 
-            quoted: msg 
-        });
+        if (initialData.result?.status !== 202 || !initialData.result.jobId) {
+            throw new Error(initialData.result?.message || 'Server gagal menerima permintaan unduh awal.');
+        }
 
-        const fileSize = formatBytes(buffer.length);
-        // Pesan akhir sekarang juga sudah disederhanakan
-        const finalMessage = `✅ *Proses Selesai!*\n\n*Judul:* ${title}\n*Ukuran:* ${fileSize}`;
-            
-        await editProgress(finalMessage);
+        const { jobId, statusCheckUrl } = initialData.result;
+        await onProgress(`⏳ Pekerjaan diterima (ID: ${jobId.substring(0, 8)}). Memeriksa status...`);
+
+        let finalResult = null;
+        for (let i = 0; i < 30; i++) { // Coba selama ~2 menit (30 * 4 detik)
+            await sleep(4000);
+            const statusData = await got(statusCheckUrl, { timeout: { request: 15000 } }).json();
+            const { result: jobDetails } = statusData;
+
+            if (jobDetails?.status === 'completed') {
+                finalResult = statusData;
+                break;
+            } else if (jobDetails?.status === 'failed') {
+                throw new Error(jobDetails.message || 'Proses di server backend gagal.');
+            } else if (jobDetails.message && jobDetails.status === 'processing') {
+                await onProgress(`⏳ ${jobDetails.message}`);
+            }
+        }
+
+        if (!finalResult) {
+            throw new Error('Waktu tunggu habis. Server mungkin sibuk atau video terlalu panjang.');
+        }
+
+        const { link, title } = finalResult.result.result;
+        if (!link) throw new Error('API berhasil tapi tidak mengembalikan link download.');
+
+        await onProgress('✅ Link didapat! Mengunduh audio...');
+        const audioBuffer = await got(link, {
+            responseType: 'buffer',
+            timeout: { request: 300000 }, // 5 menit
+            headers: { 'User-Agent': getRandomUserAgent(), 'Referer': 'https://www.google.com/' }
+        }).buffer();
+
+        return { title, buffer: audioBuffer };
 
     } catch (error) {
-        console.error("Error di ytmp3:", error); // Tambahkan log error untuk debugging
-        await editProgress(`❌ Aduh, gagal:\n${error.message}`);
+        console.error("[youtubeDownloader] Error:", error.message);
+        throw error;
     }
 }
-
-export const category = 'Downloaders';
-export const description = 'Mengunduh audio dari YouTube sebagai MP3.';
-export const usage = `${config.BOT_PREFIX}ytmp3 <url>`; // Usage disederhanakan
-export const aliases = ['ytvn']; // Alias tetap dipertahankan agar command tetap bisa dipakai
