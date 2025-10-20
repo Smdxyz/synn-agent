@@ -1,19 +1,18 @@
-// modules/downloader/ytmp4.js (UPGRADED TO 'got')
+// modules/downloader/ytmp4.js (FIXED)
 
-import got from 'got'; // <-- PERUBAHAN 1: Menggunakan 'got' bukan 'axios'
+import got from 'got';
 import { config } from '../../config.js';
 import { sendMessage, sendVideo, react, delay, fetchAsBufferWithMime } from '../../helper.js';
 
 /**
  * Polling untuk memeriksa status job download di Szyrine API menggunakan 'got'.
  */
-async function pollJobStatus(statusUrl, apiKey) {
-    const checkUrl = `${statusUrl}?apikey=${apiKey}`;
+async function pollJobStatus(statusUrl) {
+    // API Key sudah termasuk di statusCheckUrl dari respons pertama
     for (let i = 0; i < 30; i++) {
         await delay(4000);
         try {
-            // --- PERUBAHAN 2: Menggunakan got().json() ---
-            const jobStatus = await got(checkUrl).json();
+            const jobStatus = await got(statusUrl).json();
 
             if (jobStatus.result?.status === 'completed') {
                 return jobStatus.result;
@@ -22,7 +21,7 @@ async function pollJobStatus(statusUrl, apiKey) {
                 throw new Error(jobStatus.result.message || 'Proses di server gagal.');
             }
         } catch (e) {
-            throw new Error(`Gagal memeriksa status job: ${e.message}`);
+            // Jangan throw error jika hanya gagal polling sekali, coba lagi
         }
     }
     throw new Error('Waktu pemrosesan habis (timeout). Silakan coba lagi.');
@@ -30,7 +29,6 @@ async function pollJobStatus(statusUrl, apiKey) {
 
 export default async function(sock, message, args, query, sender, extras) {
     if (!query) {
-        // Menggunakan prefix dari config agar dinamis
         return sendMessage(sock, sender, `❌ Format salah. Gunakan \`${config.BOT_PREFIX}ytmp4 <link youtube>\``, { quoted: message });
     }
 
@@ -46,36 +44,36 @@ export default async function(sock, message, args, query, sender, extras) {
 
     try {
         await react(sock, sender, message.key, '⏳');
-        await sendMessage(sock, sender, '📥 Permintaan diterima! Memulai proses download video...', { quoted: message });
+        const progressMessage = await sendMessage(sock, sender, '📥 Permintaan diterima! Memulai proses download video...', { quoted: message });
+        const editProgress = (text) => sock.sendMessage(sender, { text, edit: progressMessage.key });
 
         // --- TAHAP 1: REQUEST AWAL ---
         const initialUrl = `https://szyrineapi.biz.id/api/youtube/download/mp4?url=${encodeURIComponent(query)}&apikey=${config.SZYRINE_API_KEY}`;
-        
-        // --- PERUBAHAN 3: Menggunakan got().json() ---
         const initialResponse = await got(initialUrl).json();
 
-        if (initialResponse.status !== 202 || !initialResponse.result?.statusCheckUrl) {
+        // --- PERUBAHAN KRUSIAL: Memeriksa status di dalam object 'result' ---
+        if (initialResponse.result?.status !== 202 || !initialResponse.result?.statusCheckUrl) {
             throw new Error(initialResponse.result?.message || 'Gagal memulai proses download di server.');
         }
 
         const { statusCheckUrl } = initialResponse.result;
 
         // --- TAHAP 2: POLLING STATUS ---
-        await sendMessage(sock, sender, '🔄 Server sedang memproses video Anda, mohon tunggu...', { quoted: message });
-        const completedJob = await pollJobStatus(statusCheckUrl, config.SZYRINE_API_KEY);
+        await editProgress('🔄 Server sedang memproses video Anda, mohon tunggu...');
+        const completedJob = await pollJobStatus(statusCheckUrl);
 
         const { title, link: downloadLink } = completedJob.result;
 
         // --- TAHAP 3: DOWNLOAD & KIRIM ---
-        await sendMessage(sock, sender, `✅ Proses selesai! Mengunduh *${title.trim()}*...`, { quoted: message });
+        await editProgress(`✅ Proses selesai! Mengunduh *${title.trim()}*...`);
         
-        // Bagian ini TIDAK PERLU DIUBAH, karena fetchAsBufferWithMime di helper.js sudah menggunakan 'got'
         const { buffer } = await fetchAsBufferWithMime(downloadLink);
         
-        const caption = `*${title.trim()}*\n\nPowered by Szyrine API`;
+        const caption = `*${title.trim()}*\n\nPowered by Synn Agent`;
         
         await sendVideo(sock, sender, buffer, caption, { quoted: message });
         await react(sock, sender, message.key, '✅');
+        await editProgress(`✅ Berhasil mengirim video: *${title.trim()}*`);
 
     } catch (error) {
         console.error(`[Ytmp4 Error]`, error);
@@ -84,8 +82,7 @@ export default async function(sock, message, args, query, sender, extras) {
     }
 }
 
-// Alias untuk command
 export const aliases = ['ytv', 'youtubevideo'];
 export const category = 'Downloaders';
 export const description = 'Mengunduh video dari YouTube sebagai MP4.';
-export const usage = `${config.BOT_PREFIX}ytmp4 <url>`; // Usage disederhanakan
+export const usage = `${config.BOT_PREFIX}ytmp4 <url>`;

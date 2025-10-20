@@ -1,5 +1,8 @@
-import axios from 'axios';
-import { sleep } from './utils.js'; // Asumsi kamu punya utils.js
+// youtubeDownloader.js (FIXED & UPGRADED TO 'got')
+
+import got from 'got';
+import { sleep } from './helper.js'; // Menggunakan helper.js yang sudah ada
+import { config } from './config.js'; // Import config untuk API Key
 
 const userAgents = [
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/109.0.0.0 Safari/537.36',
@@ -14,13 +17,19 @@ const getRandomUserAgent = () => userAgents[Math.floor(Math.random() * userAgent
  * @returns {Promise<{title: string, buffer: Buffer}>} Objek berisi judul dan buffer audio.
  */
 export async function downloadYouTubeAudio(youtubeUrl, onProgress = () => {}) {
+    if (!config.SZYRINE_API_KEY || config.SZYRINE_API_KEY === "YOUR_API_KEY_HERE") {
+        throw new Error('SZYRINE_API_KEY belum diatur di config.js');
+    }
+
     try {
         await onProgress('⏳ Memulai permintaan unduh...');
-        const initialApiUrl = `https://szyrineapi.biz.id/api/youtube/download/mp3?url=${encodeURIComponent(youtubeUrl)}`;
-        const { data: initialData } = await axios.get(initialApiUrl, { timeout: 30000 });
+        // --- PERUBAHAN 1: Menambahkan API Key ke URL ---
+        const initialApiUrl = `https://szyrineapi.biz.id/api/youtube/download/mp3?url=${encodeURIComponent(youtubeUrl)}&apikey=${config.SZYRINE_API_KEY}`;
+        const initialData = await got(initialApiUrl, { timeout: { request: 30000 } }).json();
 
-        if (initialData.status !== 202 || !initialData.result.jobId) {
-            throw new Error('Server gagal menerima permintaan unduh awal.');
+        // --- PERUBAHAN 2 (KRUSIAL): Memeriksa status di dalam object 'result' ---
+        if (initialData.result?.status !== 202 || !initialData.result.jobId) {
+            throw new Error(initialData.result?.message || 'Server gagal menerima permintaan unduh awal.');
         }
 
         const { jobId, statusCheckUrl } = initialData.result;
@@ -29,7 +38,7 @@ export async function downloadYouTubeAudio(youtubeUrl, onProgress = () => {}) {
         let finalResult = null;
         for (let i = 0; i < 30; i++) { // Coba selama ~2 menit (30 * 4 detik)
             await sleep(4000);
-            const { data: statusData } = await axios.get(statusCheckUrl, { timeout: 15000 });
+            const statusData = await got(statusCheckUrl, { timeout: { request: 15000 } }).json();
             const { result: jobDetails } = statusData;
 
             if (jobDetails?.status === 'completed') {
@@ -37,7 +46,7 @@ export async function downloadYouTubeAudio(youtubeUrl, onProgress = () => {}) {
                 break;
             } else if (jobDetails?.status === 'failed') {
                 throw new Error(jobDetails.message || 'Proses di server backend gagal.');
-            } else if (jobDetails.message) {
+            } else if (jobDetails.message && jobDetails.status === 'processing') {
                 await onProgress(`⏳ ${jobDetails.message}`);
             }
         }
@@ -50,11 +59,11 @@ export async function downloadYouTubeAudio(youtubeUrl, onProgress = () => {}) {
         if (!link) throw new Error('API berhasil tapi tidak mengembalikan link download.');
 
         await onProgress('✅ Link didapat! Mengunduh audio...');
-        const { data: audioBuffer } = await axios.get(link, {
-            responseType: 'arraybuffer',
-            timeout: 300000, // 5 menit
+        const audioBuffer = await got(link, {
+            responseType: 'buffer',
+            timeout: { request: 300000 }, // 5 menit
             headers: { 'User-Agent': getRandomUserAgent(), 'Referer': 'https://www.google.com/' }
-        });
+        }).buffer();
 
         return { title, buffer: audioBuffer };
 
