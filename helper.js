@@ -1,8 +1,8 @@
-// helper.js — ESM — (UPGRADED TO 'got' FOR ADVANCED SCRAPING)
+// helper.js — ESM — (UPGRADED TO 'got' FOR ADVANCED SCRAPING & SMARTER DOWNLOADER)
 // Mencakup semua fitur pengiriman pesan dan perbaikan bug.
 // Menggunakan 'got' untuk mengatasi deteksi bot seperti TLS fingerprinting.
 
-import got from 'got'; // <-- MENGGANTIKAN AXIOS
+import got from 'got';
 import { downloadContentFromMessage } from '@whiskeysockets/baileys';
 import { config } from './config.js';
 import FormData from 'form-data';
@@ -16,7 +16,6 @@ const streamToBuffer = async (stream) => { const chunks = []; for await (const c
 
 
 // ============================ PENGIRIM PESAN DASAR ============================
-// TIDAK ADA PERUBAHAN DI SEMUA FUNGSI PENGIRIM PESAN
 export const sendMessage = async (sock, jid, text, options = {}) =>
   sock.sendMessage(jid, { text }, options);
 export { sendMessage as sendText };
@@ -47,7 +46,6 @@ export const sendDoc = async (sock, jid, urlOrBuffer, fileName = 'file', mimetyp
 };
 
 // ============================ PENGIRIM PESAN TIPE KHUSUS ============================
-// TIDAK ADA PERUBAHAN
 export const sendAlbum = async (sock, jid, albumPayload = [], options = {}) => {
     if (!Array.isArray(albumPayload) || albumPayload.length === 0) {
         throw new Error("Payload untuk album tidak boleh kosong.");
@@ -69,7 +67,6 @@ export const sendLocation = async (sock, jid, latitude, longitude, options = {})
 };
 
 // ============================ PENGIRIM PESAN INTERAKTIF ============================
-// TIDAK ADA PERUBAHAN
 export const sendCarousel = async (sock, jid, items = [], options = {}) => {
   if (!Array.isArray(items) || items.length === 0) throw new Error('Items (kartu) tidak boleh kosong.');
   const cards = items.map(item => ({ image: { url: item.url }, title: item.title || '', body: item.body || '', ...(Array.isArray(item.buttons) && { buttons: item.buttons }), }));
@@ -88,7 +85,6 @@ export const sendButtons = async (sock, jid, text, footer, buttons = [], options
 };
 
 // ============================ AKSI PESAN & STATUS ============================
-// TIDAK ADA PERUBAHAN
 export const react = async (sock, jid, key, emoji = '✅') => {
   try { return await sock.sendMessage(jid, { react: { text: emoji, key } }); } catch { }
 };
@@ -132,7 +128,6 @@ export const fetchAsBufferWithMime = async (url) => {
             'Upgrade-Insecure-Requests': '1',
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
         },
-        // Opsi tambahan untuk got agar lebih mirip browser
         http2: true,
         timeout: {
             request: 30000 // Timeout 30 detik
@@ -154,12 +149,14 @@ export const fetchAsBufferWithMime = async (url) => {
 
 /**
  * Mengunduh media (gambar/video/stiker) dari pesan.
+ * @returns {Promise<{buffer: Buffer, mimetype: string}|null>} Objek berisi buffer dan mimetype, atau null jika gagal.
  */
-export const downloadMedia = async (message) => { // TIDAK ADA PERUBAHAN
+export const downloadMedia = async (message) => {
     let mediaMessage = message.message?.imageMessage || 
                        message.message?.videoMessage ||
                        message.message?.stickerMessage;
     
+    // Logika untuk mencari di pesan yang dibalas (quoted)
     if (!mediaMessage) {
         const quoted = message.message?.extendedTextMessage?.contextInfo?.quotedMessage;
         if (quoted) {
@@ -170,8 +167,14 @@ export const downloadMedia = async (message) => { // TIDAK ADA PERUBAHAN
     if (!mediaMessage) return null;
 
     try {
-        const stream = await downloadContentFromMessage(mediaMessage, mediaMessage.videoMessage ? 'video' : 'image');
-        return await streamToBuffer(stream);
+        const mimetype = mediaMessage.mimetype;
+        const stream = await downloadContentFromMessage(
+            mediaMessage, 
+            mediaMessage.videoMessage ? 'video' : (mediaMessage.stickerMessage ? 'sticker' : 'image')
+        );
+        const buffer = await streamToBuffer(stream);
+        
+        return { buffer, mimetype };
     } catch (e) {
         console.error("Gagal mengunduh media:", e);
         return null;

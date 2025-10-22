@@ -11,10 +11,13 @@
   "dependencies": {
     "@whiskeysockets/baileys": "github:Ryuu311/Whiskeysockets-Baileys",
     "axios": "^1.7.7",
+    "cheerio": "^1.0.0-rc.12",
     "form-data": "^4.0.0",
     "got": "^14.4.2",
+    "got-scraping": "^4.0.4",
     "he": "^1.2.0",
-    "pino": "^9.5.0"
+    "pino": "^9.5.0",
+    "tough-cookie": "^4.1.4"
   },
   "engines": {
     "node": ">=18.0.0"

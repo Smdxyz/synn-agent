@@ -1,68 +1,63 @@
-// modules/downloaders/tiktok.js
+// /modules/downloaders/tiktok.js
 
-import axios from 'axios';
-import { sendMessage, sendVideo, react, editMessage } from '../../helper.js';
 import { config } from '../../config.js';
+import { getTikTokPost } from '../../libs/tiktok.js';
+import { sendMessage, sendVideo, sendAlbum, editMessage } from '../../helper.js';
 
 // --- METADATA COMMAND ---
 export const category = 'Downloaders';
-export const description = 'Mengunduh video TikTok tanpa watermark.';
-export const usage = `${config.BOT_PREFIX}tiktok <url_video_tiktok>`;
-export const aliases = ['tt', 'tiktokdl'];
+export const description = 'Mengunduh video atau foto (carousel) dari TikTok tanpa watermark.';
+export const usage = `${config.BOT_PREFIX}tiktok <url>`;
+export const aliases = ['tt', 'ttdl', 'tiktokdl'];
 
-// --- FUNGSI UTAMA COMMAND ---
-export default async function tiktok(sock, message, args, query, sender) {
-  if (!query || !query.includes('tiktok.com')) {
-    return sendMessage(sock, sender, `Masukkan URL video TikTok yang valid.\n\n*Contoh:*\n${usage}`, { quoted: message });
-  }
+// --- FUNGSI UTAMA ---
+export default async function execute(sock, msg, args, text, sender) {
+    const url = args[0];
 
-  await react(sock, sender, message.key, '📥');
-  const waitingMsg = await sendMessage(sock, sender, '⏳ Sedang mengunduh video TikTok...', { quoted: message });
-  const messageKey = waitingMsg.key;
-
-  try {
-    const apiUrl = `https://szyrineapi.biz.id/api/downloaders/tiktok-vid?url=${encodeURIComponent(query)}&apikey=${config.SZYRINE_API_KEY}`;
-    
-    const { data } = await axios.get(apiUrl);
-
-    if (!data.result || !data.result.status) {
-      throw new Error(data.message || 'Gagal mendapatkan data dari API. URL mungkin tidak valid.');
+    if (!url) {
+        return sendMessage(sock, sender, `Silakan berikan link TikTok.\n\n*Contoh:*\n\`${config.BOT_PREFIX}tiktok https://vt.tiktok.com/xxxx/\``, { quoted: msg });
+    }
+    if (!/(?:https?:\/\/)?(?:www\.)?(?:tiktok\.com|vt\.tiktok\.com)\//.test(url)) {
+        return sendMessage(sock, sender, `Link yang Anda berikan sepertinya bukan link TikTok yang valid.`, { quoted: msg });
     }
 
-    const result = data.result;
+    const initialMsg = await sock.sendMessage(sender, { text: `⏳ Memproses link TikTok...` }, { quoted: msg });
+    const editProgress = (txt) => editMessage(sock, sender, txt, initialMsg.key);
 
-    // Prioritaskan link no-watermark HD, jika tidak ada, gunakan no-watermark biasa
-    const videoData = result.data;
-    const noWatermarkHD = videoData.find(v => v.type === 'nowatermark_hd');
-    const noWatermark = videoData.find(v => v.type === 'nowatermark');
-    
-    const videoUrl = noWatermarkHD?.url || noWatermark?.url;
+    try {
+        await editProgress('🔍 Mengekstrak data dari halaman TikTok...');
+        const result = await getTikTokPost(url);
 
-    if (!videoUrl) {
-      throw new Error('Tidak ditemukan video tanpa watermark dalam respons API.');
+        if (!result) {
+            throw new Error('Gagal mendapatkan data media dari link tersebut. Mungkin postingan privat atau telah dihapus.');
+        }
+
+        const caption = `*Deskripsi:* ${result.description || 'Tidak ada'}\n*Musik:* ${result.music || 'Tidak ada'}\n\nDiunduh oleh ${config.BOT_NAME}`;
+
+        if (result.type === 'Video' && result.videoBuffer) {
+            await editProgress('📥 Mengirim video...');
+            await sendVideo(sock, sender, result.videoBuffer, caption, { quoted: msg });
+            await editProgress('✅ Video berhasil dikirim!');
+
+        } else if (result.type === 'Photo' && result.imageBuffers?.length > 0) {
+            await editProgress(`🖼️ Mengirim ${result.imageBuffers.length} foto sebagai album...`);
+            
+            // Siapkan payload untuk album
+            const albumPayload = result.imageBuffers.map((buffer, index) => ({
+                image: buffer,
+                // Caption hanya ditambahkan di gambar pertama
+                caption: (index === 0) ? caption : ''
+            }));
+
+            await sendAlbum(sock, sender, albumPayload, { quoted: msg });
+            await editProgress(`✅ Album berisi ${result.imageBuffers.length} foto berhasil dikirim!`);
+        
+        } else {
+            throw new Error('Tipe media tidak dikenali atau buffer kosong.');
+        }
+
+    } catch (error) {
+        console.error("[TIKTOK_ERROR]", error);
+        await editProgress(`❌ Terjadi kesalahan: ${error.message}`);
     }
-
-    // Membuat caption yang kaya informasi sesuai permintaan
-    const caption = `
-*${result.title}*
-
-❤️ *Likes:* ${result.stats.likes}
-💬 *Komen:* ${result.stats.comment}
-🔗 *Dibagikan:* ${result.stats.share}
-👀 *Dilihat:* ${result.stats.views}
-
-👤 *Author:* ${result.author.nickname}
-🎵 *Sound:* ${result.music_info.title}
-
-*${config.WATERMARK}*
-    `.trim();
-
-    await sendVideo(sock, sender, videoUrl, caption, { quoted: message });
-    await editMessage(sock, sender, '✅ Video berhasil diunduh!', messageKey);
-
-  } catch (error) {
-    console.error("[TIKTOK DOWNLOADER] Error:", error.response ? error.response.data : error.message);
-    const errorMessage = error.message || 'Terjadi kesalahan saat mengunduh video.';
-    await editMessage(sock, sender, `❌ Gagal: ${errorMessage}`, messageKey);
-  }
 }

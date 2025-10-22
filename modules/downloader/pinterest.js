@@ -1,7 +1,4 @@
-// /modules/downloaders/pinterest.js — (FINAL & DISESUAIKAN UNTUK HELPER BARU)
-// Commands:
-//   .pinterest <q> [--geser N]   (alias: .pin, .pinterestsearch, .pinimg)
-//   .pinvid <q> [--geser N]      (alias: .pinterestvid, .pinterestvideo)
+// /modules/downloaders/pinterest.js (UNTUK PENCARIAN GAMBAR & VIDEO)
 
 import axios from 'axios';
 import { config } from '../../config.js';
@@ -21,8 +18,6 @@ const SZYRINE_PIN_SEARCH = 'https://szyrineapi.biz.id/api/downloaders/pinterest/
 
 /**
  * Mendeteksi command yang digunakan dari teks pesan.
- * @param {string} msgText Teks pesan lengkap.
- * @returns {string|null} Nama command yang digunakan (cth: 'pinterest' atau 'pinvid').
  */
 function parseUsedCommand(msgText) {
   const prefix = config.BOT_PREFIX || '!';
@@ -33,9 +28,6 @@ function parseUsedCommand(msgText) {
 
 /**
  * Memisahkan query pencarian dan jumlah slide dari argumen.
- * @param {string[]} args Argumen command.
- * @param {string} rawText Teks mentah setelah command.
- * @returns {{query: string, amount: number}} Objek berisi query dan jumlah slide.
  */
 function parseArgsToQueryAndSlide(args, rawText) {
   const joined = (rawText || args.join(' ')).trim();
@@ -44,7 +36,6 @@ function parseArgsToQueryAndSlide(args, rawText) {
   let amount = 0;
   if (parts[1]) {
     const n = parseInt(parts[1].trim().split(/\s+/)[0] || '0', 10);
-    // Batasi jumlah slide antara 1 hingga 15
     amount = Math.max(1, Math.min(Number.isFinite(n) ? n : 0, 15));
   }
   return { query, amount };
@@ -53,39 +44,40 @@ function parseArgsToQueryAndSlide(args, rawText) {
 // --- FUNGSI PENGAMBILAN DATA DARI API ---
 
 /**
- * Mengambil data gambar dari Szyrine API dan memformatnya untuk helper `sendCarousel`.
- * @param {string} q Query pencarian.
- * @param {number} limit Jumlah maksimum hasil.
- * @returns {Promise<Array<{url: string, title: string, body: string}>>}
+ * Mengambil data gambar dari Szyrine API untuk sendCarousel.
  */
 async function fetchImageItemsFromSzyrine(q, limit = 10) {
-  const { data } = await axios.get(SZYRINE_PIN_SEARCH, { params: { q } });
-  const rows = (data?.result || []).slice(0, Math.max(1, Math.min(limit, 15)));
-  return rows
-    .map(x => x?.imageLink ? ({ 
-        url: x.imageLink, 
-        title: x.title || 'Pinterest Image',
-        // [PERBAIKAN] Menggunakan 'body' agar sesuai dengan helper.js
-        body: x.title || 'Gambar dari Pinterest'
-    }) : null)
-    .filter(Boolean);
+    const apiParams = { 
+        q,
+        ...(config.SZYRINE_API_KEY && { apikey: config.SZYRINE_API_KEY })
+    };
+    const { data } = await axios.get(SZYRINE_PIN_SEARCH, { params: apiParams });
+    const rows = (data?.result || []).slice(0, Math.max(1, Math.min(limit, 15)));
+    return rows
+        .map(x => x?.imageLink ? ({ 
+            url: x.imageLink, 
+            title: x.title || 'Pinterest Image',
+            body: x.title || 'Gambar dari Pinterest'
+        }) : null)
+        .filter(Boolean);
 }
 
 /**
  * Mengambil daftar link video dari Szyrine API.
- * @param {string} q Query pencarian.
- * @param {number} limit Jumlah maksimum hasil.
- * @returns {Promise<string[]>} Array berisi baris-baris teks hasil.
  */
 async function fetchVideoListFromSzyrine(q, limit = 5) {
-  const { data } = await axios.get(SZYRINE_PIN_SEARCH, { params: { q } });
-  const rows = (data?.result || []).slice(0, Math.max(1, Math.min(limit, 10)));
-  return rows.map((x, i) => `${i + 1}. ${x?.title || 'Pinterest Video'}\n${x?.pinterestLink || x?.imageLink || ''}`);
+    const apiParams = { 
+        q,
+        ...(config.SZYRINE_API_KEY && { apikey: config.SZYRINE_API_KEY })
+    };
+    const { data } = await axios.get(SZYRINE_PIN_SEARCH, { params: apiParams });
+    const rows = (data?.result || []).slice(0, Math.max(1, Math.min(limit, 10)));
+    return rows.map((x, i) => `${i + 1}. ${x?.title || 'Pinterest Video'}\n${x?.pinterestLink || x?.imageLink || ''}`);
 }
 
 
 // --- EKSEKUSI COMMAND UTAMA ---
-export default async function (sock, message, args, rawText, sender, extras) {
+export default async function (sock, message, args, rawText, sender) {
   const jid = message.key.remoteJid;
   const fullText = message.message?.conversation || message.message?.extendedTextMessage?.text || '';
 
@@ -93,9 +85,7 @@ export default async function (sock, message, args, rawText, sender, extras) {
   const { query, amount } = parseArgsToQueryAndSlide(args, rawText);
 
   if (!query) {
-    return sendMessage(
-      sock,
-      jid,
+    return sendMessage(sock, jid,
       `Silakan masukkan kata kunci pencarian.\n\n*Contoh:*\n` +
       `\`${config.BOT_PREFIX}pinterest angelina christy\`\n` +
       `\`${config.BOT_PREFIX}pinvid aesthetic scenery --geser 5\``,
@@ -121,19 +111,16 @@ export default async function (sock, message, args, rawText, sender, extras) {
       return sendMessage(sock, jid, `❌ Tidak ditemukan hasil gambar dari Pinterest untuk "${query}".`, { quoted: message });
     }
 
-    // Beri jeda sedikit sebelum mengirim carousel agar lebih mulus
     await delay(200);
 
     await sendCarousel(sock, jid, items, {
         title: `🖼️ Hasil Pencarian Pinterest`,
-        bodyText: `Menampilkan ${items.length} gambar untuk "${query}"`,
+        body: `Menampilkan ${items.length} gambar untuk "${query}"`,
         footer: config.WATERMARK || 'Bot WhatsApp'
     });
 
   } catch (err) {
     console.error('[PINTEREST_ERROR]', err);
-    // Helper `sendCarousel` sudah memiliki penanganan error internal,
-    // jadi kita hanya perlu mengirim pesan jika error terjadi sebelum pemanggilan helper.
-    await sendMessage(sock, jid, `❌ Terjadi kesalahan saat mencari di Pinterest: ${err?.message || 'Error tidak diketahui'}`);
+    await sendMessage(sock, jid, `❌ Terjadi kesalahan saat mencari di Pinterest: ${err?.message || 'Error tidak diketahui'}`, { quoted: message });
   }
 }
