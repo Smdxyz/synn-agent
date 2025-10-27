@@ -31,7 +31,7 @@ export default async function enhance(sock, message, args, query, sender) {
     form.append('image', imageBuffer, 'image.jpg');
     form.append('creative', creative);
 
-    const { data: jobData } = await axios.post('https://szyrineapi.biz.id/api/images/pixnova/enhance', form, { 
+    const { data: jobData } = await axios.post('https://szyrineapi.biz.id/api/img/pixnova/enhance', form, { 
       headers: form.getHeaders() 
     });
     

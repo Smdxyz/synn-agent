@@ -1,4 +1,4 @@
-// modules/downloaders/snackvideo.js
+// modules/downloaders/snackvideo.js (ENDPOINT BARU)
 
 import axios from 'axios';
 import { sendMessage, sendVideo, react, editMessage } from '../../helper.js';
@@ -12,7 +12,6 @@ export const aliases = ['snackdl', 'svdl'];
 
 // --- FUNGSI UTAMA COMMAND ---
 export default async function snack(sock, message, args, query, sender) {
-  // Validasi URL, cek domain utama dan shortlink-nya (sck.io)
   if (!query || (!query.includes('snackvideo.com') && !query.includes('sck.io'))) {
     return sendMessage(sock, sender, `Masukkan URL video Snack Video yang valid.\n\n*Contoh:*\n${usage}`, { quoted: message });
   }
@@ -22,18 +21,17 @@ export default async function snack(sock, message, args, query, sender) {
   const messageKey = waitingMsg.key;
 
   try {
-    const apiUrl = `https://szyrineapi.biz.id/api/downloaders/snackvideo?url=${encodeURIComponent(query)}&apikey=${config.SZYRINE_API_KEY}`;
+    // <-- ENDPOINT DIPERBARUI
+    const apiUrl = `https://szyrineapi.biz.id/api/dl/snackvideo?url=${encodeURIComponent(query)}&apikey=${config.SZYRINE_API_KEY}`;
     
     const { data } = await axios.get(apiUrl);
 
-    if (!data.result || !data.result.success) {
-      throw new Error(data.message || 'Gagal mendapatkan data dari API. URL mungkin tidak valid.');
+    if (!data.result?.success || !data.result.media || data.result.media.length === 0) {
+      throw new Error(data.result?.message || 'Gagal mendapatkan data dari API.');
     }
 
-    const videoUrl = data.result.url;
-    
-    // Karena API tidak memberikan judul, kita buat caption sederhana
-    const caption = `*${config.WATERMARK}*`;
+    const videoUrl = data.result.media[0].url;
+    const caption = data.result.caption || `Diunduh dengan ${config.botName}`;
 
     await sendVideo(sock, sender, videoUrl, caption, { quoted: message });
     await editMessage(sock, sender, '✅ Video berhasil diunduh!', messageKey);

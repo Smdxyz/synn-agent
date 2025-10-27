@@ -1,17 +1,7 @@
-// /modules/general/menu.js (VERSI UX DITINGKATKAN BERDASARKAN ANALISIS)
+// /modules/general/menu.js (VERSI TEKS SAJA)
 
 import { config } from '../../config.js';
-import { sendImage, sendList, delay, sendMessage } from '../../helper.js';
-import fs from 'fs';
-import path from 'path';
-
-// --- DATA & FUNGSI BANTUAN ---
-
-const quotes = [
-    "Cara terbaik untuk memulai adalah dengan berhenti berbicara dan mulai melakukan.",
-    "Jangan biarkan hari kemarin menyita terlalu banyak hari ini.",
-    "Satu-satunya batasan untuk mewujudkan hari esok adalah keraguan kita hari ini.",
-];
+import { sendMessage } from '../../helper.js';
 
 function getGreeting() {
     const hour = new Date().toLocaleTimeString('en-US', { timeZone: 'Asia/Jakarta', hour: '2-digit', hour12: false });
@@ -23,41 +13,23 @@ function getGreeting() {
 }
 
 // --- FUNGSI UTAMA COMMAND ---
-export default async function execute(sock, msg, args, query, sender, extras) {
+export default async function menu(sock, msg, args, query, sender, extras) {
     const { commands } = extras; 
     const userName = msg.pushName || 'Kawan';
-    
     const greeting = getGreeting();
-    const randomQuote = quotes[Math.floor(Math.random() * quotes.length)];
+    const prefix = config.BOT_PREFIX;
 
-    // --- PESAN 1: Sapaan & Banner (Lebih Minimalis) ---
-    const headerText = `
-${greeting}, *${userName}*! 👋
-
-Selamat datang di *${config.botName}*.
-Pilih perintah dari menu di bawah untuk memulai.
-
-*❝ ${randomQuote} ❞*
-`.trim();
-
-    try {
-        const imagePath = path.join(process.cwd(), 'assets', 'menu-header.png');
-        const imageBuffer = fs.readFileSync(imagePath);
-        await sendImage(sock, sender, imageBuffer, headerText);
-    } catch (error) {
-        console.error('[MENU] Gagal membaca atau mengirim header gambar lokal:', error.message);
-        await sendMessage(sock, sender, headerText);
-    }
-    
-    await delay(250);
-
-    // --- PESAN 2: Menu Interaktif dengan Bagian Bantuan ---
+    // --- Pengelompokan Command ---
     const categorizedCommands = {};
     const processedCommands = new Set(); 
 
     commands.forEach((module, name) => {
+        // Hindari duplikasi dari alias
         if (processedCommands.has(module)) return;
+        
         const category = module.category || 'Lainnya';
+        
+        // Cari nama utama command (bukan alias)
         let mainName = name;
         for (const [cmdName, cmdModule] of commands.entries()) {
             if (cmdModule === module && !cmdModule.aliases?.includes(cmdName)) {
@@ -65,7 +37,11 @@ Pilih perintah dari menu di bawah untuk memulai.
                 break;
             }
         }
-        if (!categorizedCommands[category]) categorizedCommands[category] = [];
+        
+        if (!categorizedCommands[category]) {
+            categorizedCommands[category] = [];
+        }
+        
         categorizedCommands[category].push({ 
             name: mainName, 
             description: module.description || 'Tidak ada deskripsi.' 
@@ -73,36 +49,32 @@ Pilih perintah dari menu di bawah untuk memulai.
         processedCommands.add(module);
     });
 
-    // [REKOMENDASI DITERAPKAN] Membuat bagian baru yang lebih relevan untuk pengguna
-    const helpSection = {
-        title: "BANTUAN & INFORMASI",
-        rows: [
-            {
-                title: "Statistik Bot",
-                rowId: `${config.BOT_PREFIX}stats`,
-                description: "Lihat statistik lengkap & waktu aktif bot."
-            },
-            {
-                title: "Lapor Bug / Saran",
-                rowId: `${config.BOT_PREFIX}report [pesan]`,
-                description: "Kirim laporan bug atau saran ke developer."
-            }
-        ]
-    };
+    // --- Pembuatan Pesan Menu ---
+    let menuText = `
+${greeting}, *${userName}*! 👋
 
-    const commandSections = Object.keys(categorizedCommands).sort().map(category => ({
-        title: `Kategori: ${category.toUpperCase()}`,
-        rows: categorizedCommands[category].map(cmd => ({
-            title: `${config.BOT_PREFIX}${cmd.name}`,
-            rowId: `${config.BOT_PREFIX}${cmd.name}`,
-            description: cmd.description
-        }))
-    }));
+Berikut adalah daftar perintah yang tersedia di *${config.botName}*:
 
-    // Gabungkan bagian bantuan di paling atas, diikuti oleh kategori command
-    const allSections = [helpSection, ...commandSections];
+`;
 
-    await sendList(sock, sender, `Daftar Perintah ${config.botName}`, 'Silakan pilih perintah yang Anda butuhkan.', 'Tampilkan Menu', allSections);
+    // Urutkan kategori berdasarkan abjad
+    const sortedCategories = Object.keys(categorizedCommands).sort();
+
+    for (const category of sortedCategories) {
+        menuText += `*╭─「 ${category.toUpperCase()} 」*\n`;
+        const commandsInCategory = categorizedCommands[category];
+        
+        for (const cmd of commandsInCategory) {
+            menuText += `*│* ◦ \`${prefix}${cmd.name}\`\n`;
+            // Tambahkan deskripsi jika ada
+            // menuText += `*│*    └ ${cmd.description}\n`; 
+        }
+        menuText += `*╰───*\n\n`;
+    }
+    
+    menuText += `Ketik \`${prefix}help <nama_command>\` untuk melihat detail penggunaan.`;
+    
+    await sendMessage(sock, sender, menuText.trim(), { quoted: msg });
 }
 
 // --- METADATA COMMAND ---

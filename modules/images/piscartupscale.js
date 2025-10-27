@@ -29,7 +29,7 @@ export default async function piscartupscale(sock, message, args, query, sender)
     form.append('image', imageBuffer, 'image.jpg');
     form.append('scale', scale);
 
-    const { data } = await axios.post('https://szyrineapi.biz.id/api/images/upscale/picsart', form, { 
+    const { data } = await axios.post('https://szyrineapi.biz.id/api/img/upscale/picsart', form, { 
       headers: form.getHeaders() 
     });
 

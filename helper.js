@@ -6,6 +6,7 @@ import got from 'got';
 import { downloadContentFromMessage } from '@whiskeysockets/baileys';
 import { config } from './config.js';
 import FormData from 'form-data';
+import axios from 'axios'; // <-- TAMBAHKAN IMPORT AXIOS
 
 // ============================ UTILITAS DASAR =================================
 export const delay = (ms = 500) => new Promise((r) => setTimeout(r, ms));
@@ -182,31 +183,28 @@ export const downloadMedia = async (message) => {
 };
 
 
-// ============================ IMAGE HELPER & UPLOADER (MENGGUNAKAN 'got') ============================
+// ============================ IMAGE HELPER & UPLOADER (MENGGUNAKAN 'axios') ============================
 
 /**
- * Mengunggah buffer gambar/file ke Szyrine API file host.
+ * Mengunggah buffer gambar/file ke Szyrine API (ENDPOINT BARU).
  */
 export const uploadImage = async (buffer) => {
-    if (!config.SZYRINE_API_KEY || config.SZYRINE_API_KEY === "YOUR_API_KEY_HERE") {
-        throw new Error('SZYRINE_API_KEY belum diatur di config.js');
-    }
     const form = new FormData();
-    form.append('file', buffer, 'image.jpg');
-    form.append('expiry', '1h');
+    form.append('file', buffer, 'image.jpg'); // Nama file 'image.jpg' adalah placeholder
     
-    const uploadUrl = `https://szyrineapi.biz.id/api/fileHost/upload?apikey=${config.SZYRINE_API_KEY}`;
+    const uploadUrl = `https://szyrineapi.biz.id/api/utility/upload`;
 
-    const data = await got.post(uploadUrl, {
-        body: form
-    }).json();
+    const { data } = await axios.post(uploadUrl, form, {
+        headers: form.getHeaders()
+    });
 
-    if (data.result && data.result.directLink) {
-        return data.result.directLink;
+    if (data.result?.file?.url) {
+        return data.result.file.url;
     } else {
-        throw new Error(data.result.message || 'Gagal mengunggah gambar atau mendapatkan direct link.');
+        throw new Error(data.result?.message || 'Gagal mengunggah gambar atau mendapatkan URL.');
     }
 };
+
 
 /**
  * Polling untuk job Pixnova sampai selesai atau gagal.
@@ -217,7 +215,8 @@ export const pollPixnovaJob = async (statusUrl) => {
         try {
             const data = await got(statusUrl).json();
             if (data.result?.status === 'completed') {
-                return data.result.result.imageUrl;
+                // Beradaptasi dengan berbagai kemungkinan struktur hasil
+                return data.result.result.imageUrl || data.result.result.url || data.result.result_url;
             }
             if (data.result?.status === 'failed' || data.result?.status === 'error') {
                 throw new Error(`Proses job gagal: ${data.result.message || 'Alasan tidak diketahui'}`);

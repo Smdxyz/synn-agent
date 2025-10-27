@@ -23,7 +23,7 @@ export default async function removebg(sock, message, args, query, sender) {
 
   try {
     const imageUrl = await uploadImage(imageBuffer);
-    const apiUrl = `https://szyrineapi.biz.id/api/images/removebg/pixelcut?url=${encodeURIComponent(imageUrl)}`;
+    const apiUrl = `https://szyrineapi.biz.id/api/img/removebg/pixelcut?url=${encodeURIComponent(imageUrl)}`;
     const response = await axios.get(apiUrl, { responseType: 'arraybuffer' });
 
     await sendImage(sock, sender, response.data, '*✂️ Background berhasil dihapus!*', false, { quoted: message });

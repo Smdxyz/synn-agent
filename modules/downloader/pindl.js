@@ -1,8 +1,8 @@
-// /modules/downloaders/pindl.js (KHUSUS UNTUK DOWNLOAD DARI URL)
+// /modules/downloader/pindl.js (ENDPOINT BARU & RESPON BARU)
 
-import axios from 'axios';
+import got from 'got';
 import { config } from '../../config.js';
-import { sendMessage, sendVideo, sendImage, editMessage } from '../../helper.js';
+import { sendMessage, sendVideo, sendImage, editMessage, react } from '../../helper.js';
 
 // --- METADATA COMMAND ---
 export const category = 'Downloaders';
@@ -11,41 +11,49 @@ export const usage = `${config.BOT_PREFIX}pindl <url>`;
 export const aliases = ['pinterestdl'];
 
 // --- FUNGSI UTAMA ---
-export default async function execute(sock, msg, args) {
-    const sender = msg.key.remoteJid;
-    const url = args[0];
+export default async function pindl(sock, msg, args, query, sender) {
+    const url = query;
 
     if (!url || !/pinterest\.com|pin\.it/.test(url)) {
-        return sendMessage(sock, sender, `Silakan berikan URL Pinterest yang valid untuk diunduh.\n\n*Contoh:*\n\`${config.BOT_PREFIX}pindl https://pin.it/1R9f6ZMAt\``, { quoted: msg });
+        return sendMessage(sock, sender, `Silakan berikan URL Pinterest yang valid untuk diunduh.\n\n*Contoh:*\n\`${usage}\``, { quoted: msg });
     }
 
-    const initialMsg = await sock.sendMessage(sender, { text: `⏳ Mengunduh media dari link Pinterest...` }, { quoted: msg });
+    let initialMsg;
     const editProgress = (txt) => editMessage(sock, sender, txt, initialMsg.key);
 
     try {
-        const apiParams = { 
-            url,
-            ...(config.SZYRINE_API_KEY && { apikey: config.SZYRINE_API_KEY })
-        };
+        await react(sock, sender, msg.key, '⏳');
+        initialMsg = await sock.sendMessage(sender, { text: `⏳ Mengunduh media dari link Pinterest...` }, { quoted: msg });
         
-        const { data } = await axios.get('https://szyrineapi.biz.id/api/downloaders/pinterest/dl-v2', { params: apiParams });
+        const apiUrl = `https://szyrineapi.biz.id/api/dl/pinterest/download?url=${encodeURIComponent(url)}&apikey=${config.SZYRINE_API_KEY}`;
+        const { result } = await got(apiUrl).json();
         
-        if (data.status !== 200 || !data.result.mediaUrl) {
-            throw new Error(data.message || 'Gagal mengunduh media dari URL tersebut.');
+        if (!result?.success || !result.media || result.media.length === 0) {
+            throw new Error(result.message || 'Gagal mengunduh media dari URL tersebut.');
         }
         
-        const { isVideo, mediaUrl, description, title } = data.result;
-        const caption = title || description || `Diunduh dengan ${config.BOT_NAME}`;
+        const { type, media, title, description } = result;
+        const mediaUrl = media[0].url; // Ambil kualitas terbaik/pertama
         
-        if (isVideo) {
+        const caption = title || description || `Diunduh dengan ${config.botName}`;
+        
+        if (type === 'video') {
             await sendVideo(sock, sender, mediaUrl, caption, { quoted: msg });
-        } else {
+        } else { // Asumsikan sisanya adalah gambar
             await sendImage(sock, sender, mediaUrl, caption, false, { quoted: msg });
         }
-        await editMessage(sock, sender, `✅ Media berhasil dikirim!`, initialMsg.key);
+        
+        await editProgress(`✅ Media berhasil dikirim!`);
+        await react(sock, sender, msg.key, '✅');
 
     } catch (error) {
         console.error("[PINDL_ERROR]", error);
-        await editProgress(`❌ Terjadi kesalahan: ${error.message}`);
+        const errorMessage = `❌ Terjadi kesalahan: ${error.message}`;
+        if (initialMsg) {
+            await editProgress(errorMessage);
+        } else {
+            await sendMessage(sock, sender, errorMessage, { quoted: msg });
+        }
+        await react(sock, sender, msg.key, '❌');
     }
 }

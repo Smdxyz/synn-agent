@@ -1,9 +1,8 @@
-// youtubeDownloader.js (PATH FIXED)
+// libs/youtubeDownloader.js (ENDPOINT BARU)
 
 import got from 'got';
-// --- PERBAIKAN DI SINI ---
-import { sleep } from '../helper.js'; // Menggunakan ../ untuk naik satu direktori
-import { config } from '../config.js';   // Menggunakan ../ untuk naik satu direktori
+import { sleep } from '../helper.js';
+import { config } from '../config.js';
 
 const userAgents = [
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/109.0.0.0 Safari/537.36',
@@ -18,19 +17,21 @@ const getRandomUserAgent = () => userAgents[Math.floor(Math.random() * userAgent
  * @returns {Promise<{title: string, buffer: Buffer}>} Objek berisi judul dan buffer audio.
  */
 export async function downloadYouTubeAudio(youtubeUrl, onProgress = () => {}) {
-    if (!config.SZYRINE_API_KEY || config.SZYRINE_API_KEY === "YOUR_API_KEY_HERE") {
+    if (!config.SZYRINE_API_KEY || config.SZYRINE_API_KEY === "SANN21") {
         throw new Error('SZYRINE_API_KEY belum diatur di config.js');
     }
 
     try {
         await onProgress('⏳ Memulai permintaan unduh...');
-        const initialApiUrl = `https://szyrineapi.biz.id/api/youtube/download/mp3?url=${encodeURIComponent(youtubeUrl)}&apikey=${config.SZYRINE_API_KEY}`;
+        // ================== PERUBAHAN ENDPOINT DI SINI ==================
+        const initialApiUrl = `https://szyrineapi.biz.id/api/dl/youtube/mp3?url=${encodeURIComponent(youtubeUrl)}&apikey=${config.SZYRINE_API_KEY}`;
+        // =============================================================
         const initialData = await got(initialApiUrl, { timeout: { request: 30000 } }).json();
 
-        if (initialData.result?.status !== 202 || !initialData.result.jobId) {
-            throw new Error(initialData.result?.message || 'Server gagal menerima permintaan unduh awal.');
+        if (initialData.result?.status === 'failed' || !initialData.result.jobId) {
+             throw new Error(initialData.result?.message || 'Server gagal menerima permintaan unduh awal.');
         }
-
+        
         const { jobId, statusCheckUrl } = initialData.result;
         await onProgress(`⏳ Pekerjaan diterima (ID: ${jobId.substring(0, 8)}). Memeriksa status...`);
 
@@ -45,7 +46,7 @@ export async function downloadYouTubeAudio(youtubeUrl, onProgress = () => {}) {
                 break;
             } else if (jobDetails?.status === 'failed') {
                 throw new Error(jobDetails.message || 'Proses di server backend gagal.');
-            } else if (jobDetails.message && jobDetails.status === 'processing') {
+            } else if (jobDetails.message && (jobDetails.status === 'processing' || jobDetails.status === 'pending')) {
                 await onProgress(`⏳ ${jobDetails.message}`);
             }
         }

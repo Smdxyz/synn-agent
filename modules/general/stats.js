@@ -1,4 +1,4 @@
-// /modules/general/stats.js (FIXED)
+// /modules/general/stats.js (Tampilan Disederhanakan)
 
 import { config } from '../../config.js';
 import { sendMessage } from '../../helper.js';
@@ -9,12 +9,17 @@ import { sendMessage } from '../../helper.js';
 function formatUptime(seconds) {
     function pad(s) { return (s < 10 ? '0' : '') + s; }
     const days = Math.floor(seconds / (24 * 3600));
-    seconds %= (24 * 3600);
-    const hours = Math.floor(seconds / 3600);
-    seconds %= 3600;
-    const minutes = Math.floor(seconds / 60);
+    const hours = Math.floor(seconds / 3600) % 24;
+    const minutes = Math.floor(seconds / 60) % 60;
     const secs = Math.floor(seconds % 60);
-    return `${days} Hari, ${pad(hours)} Jam, ${pad(minutes)} Menit, ${pad(secs)} Detik`;
+    
+    let uptimeString = '';
+    if (days > 0) uptimeString += `${days}d `;
+    if (hours > 0 || days > 0) uptimeString += `${pad(hours)}h `;
+    if (minutes > 0 || hours > 0 || days > 0) uptimeString += `${pad(minutes)}m `;
+    uptimeString += `${pad(secs)}s`;
+    
+    return uptimeString.trim();
 }
 
 export default async function stats(sock, msg, args, query, sender, extras) {
@@ -22,26 +27,13 @@ export default async function stats(sock, msg, args, query, sender, extras) {
     const uptime = formatUptime(process.uptime());
     const featureCount = new Set(commands.values()).size;
     
-    // [PERBAIKAN] Menggunakan format yang lebih kompatibel
-    const currentDate = new Date().toLocaleString('id-ID', {
-        timeZone: 'Asia/Jakarta',
-        dateStyle: 'full',
-        timeStyle: 'medium'
-    });
-
     const statsText = `
-*📊 STATISTIK ${config.botName.toUpperCase()}*
+*📊 Bot Status*
 
-*🕒 Waktu Aktif:*
-   └ ${uptime}
+*┌ Waktu Aktif:* \`${uptime}\`
+*└ Total Fitur:* \`${featureCount} Perintah\`
 
-*⚙️ Total Fitur:*
-   └ ${featureCount} Perintah Unik
-
-*🗓️ Waktu Server Saat Ini:*
-   └ ${currentDate}
-
-*Terima kasih telah menggunakan bot ini!*
+*Powered by ${config.botName}*
     `.trim();
 
     await sendMessage(sock, sender, statsText, { quoted: msg });

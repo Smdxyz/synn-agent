@@ -1,4 +1,4 @@
-// /modules/downloaders/x.js
+// /modules/downloaders/x.js (ENDPOINT BARU)
 
 import { config } from '../../config.js';
 import { handleApiDownloader } from '../../libs/downloaderHandler.js';
@@ -11,18 +11,18 @@ export const usage = `${config.BOT_PREFIX}x <url>`;
 export const aliases = ['twitter', 'twt', 'twitterdl'];
 
 // --- FUNGSI UTAMA ---
-export default async function execute(sock, msg, args) {
-    const url = args[0];
+export default async function x(sock, msg, args, query) {
+    const url = query;
     if (!url || !/(?:https?:\/\/)?(?:www\.)?(?:twitter\.com|x\.com)\//.test(url)) {
-        return sendMessage(sock, msg.key.remoteJid, `Silakan berikan link X/Twitter yang valid.\n\n*Contoh:*\n\`${config.BOT_PREFIX}x https://x.com/username/status/12345\``, { quoted: msg });
+        return sendMessage(sock, msg.key.remoteJid, `Silakan berikan link X/Twitter yang valid.\n\n*Contoh:*\n\`${usage}\``, { quoted: msg });
     }
 
     await handleApiDownloader(sock, msg, url, {
         platformName: 'X/Twitter',
-        apiUrl: 'https://szyrineapi.biz.id/api/downloaders/x',
+        apiUrl: 'https://szyrineapi.biz.id/api/dl/twitter', // <-- ENDPOINT DIPERBARUI
         captionFormatter: (result) => {
-            const user = result.user;
-            return `*${user.name}* (@${user.screenName})\n\n${result.text}\n\n❤️ ${result.stats.likes} | 🔁 ${result.stats.retweets} | 👁️ ${result.views}\n\nDiunduh oleh ${config.BOT_NAME}`;
+            const user = result.author;
+            return `*${user.name}* (@${user.screen_name})\n\n${result.full_text}\n\n❤️ ${result.favorite_count} | 🔁 ${result.retweet_count}\n\nDiunduh oleh ${config.botName}`;
         }
     });
 }

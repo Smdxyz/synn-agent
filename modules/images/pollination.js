@@ -21,7 +21,7 @@ export default async function pollination(sock, message, args, query, sender) {
   const messageKey = sentMsg.key;
   
   try {
-    const apiUrl = `https://szyrineapi.biz.id/api/images/create/pollinations?prompt=${encodeURIComponent(query)}`;
+    const apiUrl = `https://szyrineapi.biz.id/api/img/create/pollinations?prompt=${encodeURIComponent(query)}`;
     const response = await axios.get(apiUrl, { responseType: 'arraybuffer' });
 
     await sendImage(sock, sender, response.data, `*Prompt:* ${query}\n*${config.WATERMARK}*`, false, { quoted: message });

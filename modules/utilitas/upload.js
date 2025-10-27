@@ -1,4 +1,4 @@
-// modules/utilities/upload.js (VERSI PERBAIKAN DENGAN EKSTENSI OTOMATIS)
+// modules/utilities/upload.js (VERSI PERBAIKAN DENGAN EKSTENSI OTOMATIS & API BARU)
 
 import { sendMessage, react, downloadMedia, editMessage } from '../../helper.js';
 import { config } from '../../config.js';
@@ -8,7 +8,7 @@ import axios from 'axios';
 // --- METADATA COMMAND ---
 export const category = 'Utilities';
 export const description = 'Mengunggah gambar/video ke host dan mendapatkan direct link.';
-export const usage = `${config.BOT_PREFIX}upload [waktu_hapus]`;
+export const usage = `${config.BOT_PREFIX}upload`;
 export const aliases = ['up', 'tourl'];
 
 /**
@@ -34,7 +34,6 @@ const mimeToExtension = (mime) => {
 
 // --- FUNGSI UTAMA COMMAND ---
 export default async function upload(sock, message, args, query, sender) {
-  // ==================== PERUBAHAN DI SINI ====================
   const mediaData = await downloadMedia(message); 
   
   if (!mediaData || !mediaData.buffer) {
@@ -42,10 +41,7 @@ export default async function upload(sock, message, args, query, sender) {
   }
 
   const { buffer: fileBuffer, mimetype } = mediaData;
-  // ==========================================================
   
-  const expiry = args[0] || '1h';
-
   await react(sock, sender, message.key, '📤');
   const waitingMsg = await sendMessage(sock, sender, `📤 Mengunggah file...`, { quoted: message });
   const messageKey = waitingMsg.key;
@@ -53,23 +49,19 @@ export default async function upload(sock, message, args, query, sender) {
   try {
     const form = new FormData();
     
-    // ==================== PERUBAHAN DI SINI ====================
-    // Buat nama file yang benar dengan ekstensi yang sesuai
     const extension = mimeToExtension(mimetype);
     const filename = `synn-upload-${Date.now()}.${extension}`;
     
-    form.append('file', fileBuffer, filename); // <-- Kirim dengan nama file yang benar
-    // ==========================================================
+    form.append('file', fileBuffer, filename);
 
-    form.append('expiry', expiry);
-
-    const { data } = await axios.post(`https://szyrineapi.biz.id/api/fileHost/upload?apikey=${config.SZYRINE_API_KEY}`, form, { 
+    // Endpoint baru tidak memerlukan API Key atau parameter expiry
+    const { data } = await axios.post(`https://szyrineapi.biz.id/api/utility/upload`, form, { 
       headers: form.getHeaders() 
     });
 
-    if (data.result?.success) {
-      const res = data.result;
-      const replyText = `*✅ Upload Berhasil!*\n\n🔗 *Link:* ${res.directLink}\n🕒 *Hapus Dalam:* ${res.expiresIn}`;
+    if (data.result?.success && data.result?.file?.url) {
+      const res = data.result.file;
+      const replyText = `*✅ Upload Berhasil!*\n\n🔗 *Link:* ${res.url}\n🕒 *Hapus Dalam:* ${res.expires}`;
       await editMessage(sock, sender, replyText, messageKey);
     } else {
       throw new Error(data.result?.message || 'Gagal mengunggah file.');

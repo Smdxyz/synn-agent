@@ -38,7 +38,7 @@ async function handleMotherImage(sock, message, text, context) {
         form.append('mother', motherBuffer, { filename: 'mother.jpg' });
         form.append('gender', gender);
 
-        const { data: jobData } = await axios.post('https://szyrineapi.biz.id/api/images/pixnova/ai-baby', form, { 
+        const { data: jobData } = await axios.post('https://szyrineapi.biz.id/api/img/pixnova/ai-baby', form, { 
             headers: form.getHeaders() 
         });
 

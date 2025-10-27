@@ -24,7 +24,7 @@ export default async function comic(sock, message, args, query, sender) {
 
   try {
     const imageUrl = await uploadImage(imageBuffer);
-    const apiUrl = `https://szyrineapi.biz.id/api/images/comic?url=${encodeURIComponent(imageUrl)}&apikey=${config.SZYRINE_API_KEY}`;
+    const apiUrl = `https://szyrineapi.biz.id/api/img/comic?url=${encodeURIComponent(imageUrl)}&apikey=${config.SZYRINE_API_KEY}`;
     const { data } = await axios.get(apiUrl);
 
     if (data.result?.hasil) {

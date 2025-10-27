@@ -34,7 +34,7 @@ async function handleFaceImage(sock, message, text, context) {
         form.append('source', sourceBuffer, { filename: 'source.jpg' });
         form.append('face', faceBuffer, { filename: 'face.jpg' });
 
-        const { data: jobData } = await axios.post('https://szyrineapi.biz.id/api/images/pixnova/faceswap', form, {
+        const { data: jobData } = await axios.post('https://szyrineapi.biz.id/api/img/pixnova/faceswap', form, {
             headers: form.getHeaders(),
         });
 

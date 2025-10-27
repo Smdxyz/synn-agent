@@ -49,7 +49,7 @@ export default async function toanime(sock, message, args, query, sender, extras
         form.append('image', buffer, { filename: 'image.jpg' });
         form.append('model', model);
 
-        const initialResponse = await axios.post('https://szyrineapi.biz.id/api/images/pixnova/img2anime', form, {
+        const initialResponse = await axios.post('https://szyrineapi.biz.id/api/img/pixnova/img2anime', form, {
             headers: form.getHeaders(),
         });
 

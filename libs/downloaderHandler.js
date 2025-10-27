@@ -17,23 +17,30 @@ import {
  * @param {object} msg - Objek pesan
  * @param {string} url - URL yang diberikan pengguna
  * @param {object} options - Opsi spesifik untuk platform
- * @param {string} options.platformName - Nama platform (e.g., 'X/Twitter', 'Threads')
+ * @param {string} options.platformName - Nama platform (e.g., 'Instagram', 'Facebook')
  * @param {string} options.apiUrl - Endpoint API
  * @param {function} options.captionFormatter - Fungsi untuk memformat caption dari hasil API
+ * @param {function} [options.urlPreProcessor] - (Opsional) Fungsi untuk memproses URL sebelum request API
  */
 export async function handleApiDownloader(sock, msg, url, options) {
-    const { platformName, apiUrl, captionFormatter } = options;
+    const { platformName, apiUrl, captionFormatter, urlPreProcessor } = options;
     const sender = msg.key.remoteJid;
 
     const initialMsg = await sock.sendMessage(sender, { text: `⏳ Memproses link dari ${platformName}...` }, { quoted: msg });
     const editProgress = (txt) => editMessage(sock, sender, txt, initialMsg.key);
 
     try {
+        let processedUrl = url;
+        // Jalankan pre-processor jika ada (untuk Facebook)
+        if (typeof urlPreProcessor === 'function') {
+            await editProgress(`🔄 Mengonversi link ${platformName}...`);
+            processedUrl = await urlPreProcessor(url);
+        }
+        
         await editProgress(`🔍 Meminta data dari API untuk ${platformName}...`);
         
-        // Tambahkan SZYRINE_API_KEY jika ada di config
         const apiParams = {
-            url,
+            url: processedUrl,
             ...(config.SZYRINE_API_KEY && { apikey: config.SZYRINE_API_KEY })
         };
 
@@ -42,8 +49,8 @@ export async function handleApiDownloader(sock, msg, url, options) {
             timeout: 60000 // 1 menit timeout
         });
 
-        if (apiResponse.status !== 200 || !apiResponse.result) {
-            throw new Error(apiResponse.message || 'Gagal mendapatkan data dari API.');
+        if (apiResponse.status !== 200 || !apiResponse.result?.success) {
+            throw new Error(apiResponse.result?.message || 'Gagal mendapatkan data dari API.');
         }
 
         const result = apiResponse.result;
@@ -51,13 +58,12 @@ export async function handleApiDownloader(sock, msg, url, options) {
         const mediaItems = result.media || [];
 
         if (mediaItems.length === 0) {
-            // Jika tidak ada media, kirim teksnya saja
-            return editProgress(caption);
+            return editProgress(`⚠️ Tidak ada media yang bisa diunduh dari link ini.`);
         }
 
         await editProgress(`✅ Data diterima! Total media: ${mediaItems.length}. Mengunduh...`);
 
-        const photos = mediaItems.filter(m => m.type === 'photo');
+        const photos = mediaItems.filter(m => m.type === 'image');
         const videos = mediaItems.filter(m => m.type === 'video');
         let mediaSent = false;
 
@@ -88,7 +94,6 @@ export async function handleApiDownloader(sock, msg, url, options) {
                 await editProgress(`🎬 Mengunduh video ${index + 1}/${videos.length}...`);
                  try {
                     const { buffer } = await fetchAsBufferWithMime(video.url);
-                    // Beri caption hanya di video pertama, DAN jika belum ada foto yang dikirim
                     const videoCaption = !mediaSent && index === 0 ? caption : '';
                     await sendVideo(sock, sender, buffer, videoCaption, { quoted: msg });
                     await delay(1000); // Jeda antar video

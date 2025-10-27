@@ -31,7 +31,7 @@ export default async function upscale(sock, message, args, query, sender, extras
         const form = new FormData();
         form.append('image', buffer, { filename: 'image.jpg' });
 
-        const response = await axios.post('https://szyrineapi.biz.id/api/images/upscale/imgupscaler', form, {
+        const response = await axios.post('https://szyrineapi.biz.id/api/img/upscale/imgupscaler', form, {
             headers: form.getHeaders(),
         });
 

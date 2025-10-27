@@ -21,7 +21,7 @@ export default async function nulis(sock, message, args, query, sender) {
   const messageKey = waitingMsg.key;
 
   try {
-    const apiUrl = `https://szyrineapi.biz.id/api/images/nulis?text=${encodeURIComponent(query)}&apikey=${config.SZYRINE_API_KEY}`;
+    const apiUrl = `https://szyrineapi.biz.id/api/img/nulis?text=${encodeURIComponent(query)}&apikey=${config.SZYRINE_API_KEY}`;
     const response = await axios.get(apiUrl, { responseType: 'arraybuffer' });
 
     await sendImage(sock, sender, response.data, 'Ini hasilnya...', false, { quoted: message });

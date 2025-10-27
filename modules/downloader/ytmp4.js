@@ -1,9 +1,8 @@
-// modules/downloader/ytmp4.js (FINAL PATH FIXED)
+// modules/downloader/ytmp4.js (ENDPOINT BARU)
 
 import got from 'got';
-// <-- PERBAIKAN PATH: Naik dua level untuk menemukan file di root
 import { config } from '../../config.js';
-import { sendMessage, sendVideo, react, delay, fetchAsBufferWithMime } from '../../helper.js';
+import { sendMessage, sendVideo, react, delay, editMessage, fetchAsBufferWithMime } from '../../helper.js';
 
 async function pollJobStatus(statusUrl) {
     for (let i = 0; i < 30; i++) {
@@ -35,15 +34,18 @@ export default async function(sock, message, args, query, sender, extras) {
     }
 
     let progressMessage;
+    const editProgress = (text) => editMessage(sock, sender, text, progressMessage.key);
+    
     try {
         await react(sock, sender, message.key, '⏳');
         progressMessage = await sendMessage(sock, sender, '📥 Permintaan diterima! Memulai proses download video...', { quoted: message });
-        const editProgress = (text) => sock.sendMessage(sender, { text, edit: progressMessage.key });
 
-        const initialUrl = `https://szyrineapi.biz.id/api/youtube/download/mp4?url=${encodeURIComponent(query)}&apikey=${config.SZYRINE_API_KEY}`;
+        // ================== PERUBAHAN ENDPOINT DI SINI ==================
+        const initialUrl = `https://szyrineapi.biz.id/api/dl/youtube/mp4?url=${encodeURIComponent(query)}&apikey=${config.SZYRINE_API_KEY}`;
+        // =============================================================
         const initialResponse = await got(initialUrl).json();
 
-        if (initialResponse.result?.status !== 202 || !initialResponse.result?.statusCheckUrl) {
+        if (initialResponse.result?.status === 'failed' || !initialResponse.result?.statusCheckUrl) {
             throw new Error(initialResponse.result?.message || 'Gagal memulai proses download di server.');
         }
 
@@ -58,7 +60,7 @@ export default async function(sock, message, args, query, sender, extras) {
         
         const { buffer } = await fetchAsBufferWithMime(downloadLink);
         
-        const caption = `*${title.trim()}*\n\nPowered by Synn Agent`;
+        const caption = `*${title.trim()}*\n\nPowered by ${config.botName}`;
         
         await sendVideo(sock, sender, buffer, caption, { quoted: message });
         await react(sock, sender, message.key, '✅');
@@ -68,7 +70,7 @@ export default async function(sock, message, args, query, sender, extras) {
         console.error(`[Ytmp4 Error]`, error);
         const finalErrorMessage = `❌ Terjadi kesalahan: ${error.message}`;
         if (progressMessage) {
-            await sock.sendMessage(sender, { text: finalErrorMessage, edit: progressMessage.key });
+            await editProgress(finalErrorMessage);
         } else {
             await sendMessage(sock, sender, finalErrorMessage, { quoted: message });
         }

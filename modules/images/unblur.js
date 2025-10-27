@@ -24,7 +24,7 @@ export default async function unblur(sock, message, args, query, sender) {
 
   try {
     const imageUrl = await uploadImage(imageBuffer);
-    const apiUrl = `https://szyrineapi.biz.id/api/images/upscale/unblur?url=${encodeURIComponent(imageUrl)}`;
+    const apiUrl = `https://szyrineapi.biz.id/api/img/upscale/unblur?url=${encodeURIComponent(imageUrl)}`;
     const { data } = await axios.get(apiUrl);
 
     if (data.result?.result_url) {

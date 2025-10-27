@@ -27,7 +27,7 @@ export default async function describe(sock, message, args, query, sender) {
     const form = new FormData();
     form.append('image', imageBuffer, 'image.jpg');
 
-    const { data } = await axios.post('https://szyrineapi.biz.id/api/images/describe/zoner', form, { 
+    const { data } = await axios.post('https://szyrineapi.biz.id/api/img/describe/zoner', form, { 
       headers: form.getHeaders() 
     });
     

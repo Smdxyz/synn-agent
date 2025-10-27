@@ -34,7 +34,7 @@ export default async function banana(sock, message, args, query, sender, extras)
         form.append('image', buffer, { filename: 'image.jpg' });
         form.append('prompt', prompt);
 
-        const initialResponse = await axios.post('https://szyrineapi.biz.id/api/images/edit/nanobanana', form, {
+        const initialResponse = await axios.post('https://szyrineapi.biz.id/api/img/edit/nanobanana', form, {
             headers: form.getHeaders(),
         });
 
