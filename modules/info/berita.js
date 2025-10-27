@@ -1,4 +1,4 @@
-// /modules/info/berita.js (BARU)
+// /modules/info/berita.js (FIXED)
 
 import axios from 'axios';
 import { config } from '../../config.js';
@@ -9,6 +9,9 @@ export const category = 'Info';
 export const description = 'Menampilkan berita teratas dari Kompas.';
 export const usage = `${config.BOT_PREFIX}berita`;
 export const aliases = ['news', 'kompas'];
+
+// Gambar pengganti jika berita tidak memiliki thumbnail
+const FALLBACK_IMAGE_URL = 'https://asset.kompas.com/data/photo/2020/03/11/5e687522c5324.jpg';
 
 // --- Fungsi Pengambilan Data ---
 async function fetchNewsDetail(url) {
@@ -35,7 +38,7 @@ async function handleNewsSelection(sock, msg, text, context) {
 
     try {
         const detail = await fetchNewsDetail(selectedNews.link);
-        const detailText = `*${detail.title}*\n\n*Oleh:* ${detail.author}\n*Tanggal:* ${detail.date}\n\n${detail.content}`;
+        const detailText = `*${detail.title}*\n\n*Oleh:* ${detail.author.trim()}\n*Tanggal:* ${detail.date}\n\n${detail.content}`;
         await editMessage(sock, sender, detailText, detailMsg.key);
     } catch (error) {
         await editMessage(sock, sender, `❌ Gagal memuat detail berita: ${error.message}`, detailMsg.key);
@@ -59,7 +62,9 @@ export default async function berita(sock, msg, args, query, sender, extras) {
         const newsItems = data.result.slice(0, 10);
 
         const carouselItems = newsItems.map((item, index) => ({
-            url: item.image,
+            // ================== PERBAIKAN DI SINI ==================
+            url: item.image || FALLBACK_IMAGE_URL, // Gunakan gambar pengganti jika tidak ada
+            // =======================================================
             title: `${index + 1}. ${item.title}`,
             body: `📅 ${item.date}`
         }));
