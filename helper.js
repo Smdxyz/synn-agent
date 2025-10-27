@@ -6,7 +6,7 @@ import got from 'got';
 import { downloadContentFromMessage } from '@whiskeysockets/baileys';
 import { config } from './config.js';
 import FormData from 'form-data';
-import axios from 'axios'; // <-- TAMBAHKAN IMPORT AXIOS
+import axios from 'axios';
 
 // ============================ UTILITAS DASAR =================================
 export const delay = (ms = 500) => new Promise((r) => setTimeout(r, ms));
@@ -187,10 +187,15 @@ export const downloadMedia = async (message) => {
 
 /**
  * Mengunggah buffer gambar/file ke Szyrine API (ENDPOINT BARU).
+ *
+ * @param {Buffer} buffer - Buffer dari gambar yang akan diunggah.
+ * @param {string} mimetype - Tipe MIME dari gambar (contoh: 'image/jpeg').
+ * @returns {Promise<string>} URL dari gambar yang berhasil diunggah.
  */
-export const uploadImage = async (buffer) => {
+export const uploadImage = async (buffer, mimetype = 'image/jpeg') => { // <-- PERUBAHAN 1: Terima mimetype
     const form = new FormData();
-    form.append('file', buffer, 'image.jpg'); // Nama file 'image.jpg' adalah placeholder
+    // V-- PERUBAHAN 2: Gunakan metode append yang lebih robust dengan contentType
+    form.append('file', buffer, { filename: 'image.jpg', contentType: mimetype }); 
     
     const uploadUrl = `https://szyrineapi.biz.id/api/utility/upload`;
 
@@ -239,7 +244,9 @@ export default {
   // Actions & Presence
   react, editMessage, deleteMessage, forwardMessage,
   setPresence, typing,
-  // Downloader
+  // Downloader & Uploader
   fetchAsBufferWithMime,
   downloadMedia,
+  uploadImage,
+  pollPixnovaJob,
 };

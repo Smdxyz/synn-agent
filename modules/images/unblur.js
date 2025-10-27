@@ -1,6 +1,5 @@
 // modules/images/unblur.js
-
-import { sendMessage, react, downloadMedia, uploadImage, sendImage, editMessage } from '../../helper.js';
+import { sendMessage, react, downloadMedia, uploadImage, sendImage, editMessage, delay } from '../../helper.js';
 import { config } from '../../config.js';
 import axios from 'axios';
 
@@ -12,23 +11,32 @@ export const aliases = ['deblur', 'jelasin'];
 
 // --- FUNGSI UTAMA COMMAND ---
 export default async function unblur(sock, message, args, query, sender) {
-  const imageBuffer = await downloadMedia(message);
+  const media = await downloadMedia(message);
   
-  if (!imageBuffer) {
+  if (!media) {
     return sendMessage(sock, sender, 'Kirim atau balas sebuah gambar yang buram untuk diperjelas.', { quoted: message });
   }
 
+  const { buffer, mimetype } = media;
+
   await react(sock, sender, message.key, '💧');
-  const sentMsg = await sendMessage(sock, sender, `⏳ Menghilangkan blur pada gambar...`, { quoted: message });
+  const sentMsg = await sendMessage(sock, sender, `⏳ Menganalisa tingkat blur...`, { quoted: message });
   const messageKey = sentMsg.key;
 
   try {
-    const imageUrl = await uploadImage(imageBuffer);
+    // ---- Animasi Tunggu ----
+    await delay(1000);
+    await editMessage(sock, sender, `️ Mempertajam detail...`, messageKey);
+    await delay(1500);
+    await editMessage(sock, sender, `💧 Menghilangkan blur...`, messageKey);
+    // ------------------------
+
+    const imageUrl = await uploadImage(buffer, mimetype);
     const apiUrl = `https://szyrineapi.biz.id/api/img/upscale/unblur?url=${encodeURIComponent(imageUrl)}`;
     const { data } = await axios.get(apiUrl);
 
     if (data.result?.result_url) {
-      await sendImage(sock, sender, data.result.result_url, `*💧 Gambar berhasil diperjelas!*`, { quoted: message });
+      await sendImage(sock, sender, data.result.result_url, `*💧 Gambar berhasil diperjelas!*`, false, { quoted: message });
       await editMessage(sock, sender, '✅ Selesai!', messageKey);
     } else {
       throw new Error(data.message || 'URL hasil tidak ditemukan.');

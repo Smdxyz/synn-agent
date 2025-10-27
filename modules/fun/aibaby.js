@@ -1,4 +1,4 @@
-// modules/fun/aibaby.js (VERSI LENGKAP & PERBAIKAN ALUR)
+// modules/fun/aibaby.js (VERSI LENGKAP & PERBAIKAN ALUR + ANIMASI)
 
 import axios from 'axios';
 import FormData from 'form-data';
@@ -14,28 +14,31 @@ export const aliases = ['jadibayi', 'babygenerator'];
 
 /**
  * Fungsi ini menangani pesan kedua (gambar Ibu) dari pengguna.
- * Dipanggil oleh message.handler.js ketika pengguna dalam waitState.
  */
 async function handleMotherImage(sock, message, text, context) {
     const jid = message.key.remoteJid;
-    const { fatherBuffer, gender, originalMessage } = context;
+    const { fatherMedia, gender, originalMessage } = context;
 
     // Gunakan helper untuk mengunduh gambar Ibu
-    const motherBuffer = await H.downloadMedia(message);
+    const motherMedia = await H.downloadMedia(message);
 
-    if (!motherBuffer) {
+    if (!motherMedia) {
         await H.sendMessage(sock, jid, "❌ Anda harus mengirimkan gambar calon Ibu. Silakan kirim ulang gambarnya.", { quoted: message });
         return false; // Jangan hapus state, biarkan pengguna mencoba lagi
     }
 
     await H.react(sock, jid, message.key, '👩');
-    const sentMsg = await H.sendMessage(sock, jid, '⏳ Kedua foto diterima. Sedang memprediksi wajah bayi...', { quoted: message });
+    const sentMsg = await H.sendMessage(sock, jid, '⏳ Kedua foto diterima. Menganalisa genetik...', { quoted: message });
     const messageKey = sentMsg.key;
 
     try {
+        await H.delay(1500);
+        await H.editMessage(sock, jid, '👶 Memprediksi wajah bayi... Ini mungkin perlu waktu.', messageKey);
+
         const form = new FormData();
-        form.append('father', fatherBuffer, { filename: 'father.jpg' });
-        form.append('mother', motherBuffer, { filename: 'mother.jpg' });
+        // PERBAIKAN: Sertakan mimetype untuk kedua gambar
+        form.append('father', fatherMedia.buffer, { filename: 'father.jpg', contentType: fatherMedia.mimetype });
+        form.append('mother', motherMedia.buffer, { filename: 'mother.jpg', contentType: motherMedia.mimetype });
         form.append('gender', gender);
 
         const { data: jobData } = await axios.post('https://szyrineapi.biz.id/api/img/pixnova/ai-baby', form, { 
@@ -75,8 +78,9 @@ export default async function aibaby(sock, message, args, query, sender, extras)
         return H.sendMessage(sock, jid, '❌ *Gender tidak valid!*\n\nGunakan format:\n`!aibaby boy` atau `!aibaby girl`', { quoted: message });
     }
 
-    const fatherBuffer = await H.downloadMedia(message);
-    if (!fatherBuffer) {
+    // PERBAIKAN: Download media sebagai objek { buffer, mimetype }
+    const fatherMedia = await H.downloadMedia(message);
+    if (!fatherMedia) {
         return H.sendMessage(sock, jid, '❌ *Gambar tidak ditemukan!*\n\nAnda harus menyertakan gambar calon Ayah pada perintah pertama.', { quoted: message });
     }
 
@@ -87,9 +91,9 @@ export default async function aibaby(sock, message, args, query, sender, extras)
         extras.set(sender, 'aibaby', {
             handler: handleMotherImage,
             context: {
-                fatherBuffer: fatherBuffer,
+                fatherMedia: fatherMedia, // Simpan seluruh objek media
                 gender: gender,
-                originalMessage: message // Simpan pesan asli untuk di-quote
+                originalMessage: message
             },
             timeout: 300000 // Beri waktu 5 menit
         });

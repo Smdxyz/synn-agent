@@ -13,7 +13,6 @@ export default async function upscale(sock, message, args, query, sender, extras
   const m = message;
   const jid = m.key.remoteJid;
 
-  // Ambil media (gambar/video/stiker) dari pesan/quoted ⇒ { buffer, mimetype }
   const media = await H.downloadMedia(m);
   if (!media) {
     return H.sendMessage(
@@ -27,10 +26,17 @@ export default async function upscale(sock, message, args, query, sender, extras
   const { buffer, mimetype } = media;
 
   await H.react(sock, jid, m.key, '✨');
-  const sentMsg = await H.sendMessage(sock, jid, '⏳ Sedang meningkatkan kualitas gambar Anda...', { quoted: m });
+  const sentMsg = await H.sendMessage(sock, jid, '⏳ Memulai proses upscale...', { quoted: m });
   const messageKey = sentMsg.key;
 
   try {
+    // ---- Animasi Tunggu ----
+    await H.delay(1000);
+    await H.editMessage(sock, jid, ' analysa gambar...', messageKey);
+    await H.delay(1500);
+    await H.editMessage(sock, jid, '✨ Menerapkan sihir AI...', messageKey);
+    // -----------------------
+
     const form = new FormData();
     form.append('image', buffer, { filename: 'image.jpg', contentType: mimetype || 'image/jpeg' });
 

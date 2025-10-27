@@ -1,6 +1,6 @@
 // modules/ai/pollination.js
 
-import { sendMessage, react, sendImage, editMessage } from '../../helper.js';
+import { sendMessage, react, sendImage, editMessage, delay } from '../../helper.js';
 import { config } from '../../config.js';
 import axios from 'axios';
 
@@ -17,10 +17,15 @@ export default async function pollination(sock, message, args, query, sender) {
   }
   
   await react(sock, sender, message.key, '🌌');
-  const sentMsg = await sendMessage(sock, sender, `⏳ Membuat gambar dengan Pollinations: *${query}*`, { quoted: message });
+  const sentMsg = await sendMessage(sock, sender, `⏳ Menyiapkan kanvas digital...`, { quoted: message });
   const messageKey = sentMsg.key;
   
   try {
+    // --- Animasi Tunggu ---
+    await delay(1000);
+    await editMessage(sock, sender, `🎨 Melukis imajinasi Anda: *"${query}"*`, messageKey);
+    // -----------------------
+
     const apiUrl = `https://szyrineapi.biz.id/api/img/create/pollinations?prompt=${encodeURIComponent(query)}`;
     const response = await axios.get(apiUrl, { responseType: 'arraybuffer' });
 

@@ -1,6 +1,6 @@
 // modules/fun/nulis.js
 
-import { sendMessage, react, sendImage, editMessage } from '../../helper.js';
+import { sendMessage, react, sendImage, editMessage, delay } from '../../helper.js';
 import { config } from '../../config.js';
 import axios from 'axios';
 
@@ -17,10 +17,15 @@ export default async function nulis(sock, message, args, query, sender) {
   }
 
   await react(sock, sender, message.key, '📝');
-  const waitingMsg = await sendMessage(sock, sender, `⏳ Sedang menulis di buku...`, { quoted: message });
+  const waitingMsg = await sendMessage(sock, sender, `⏳ Menyiapkan pulpen dan buku...`, { quoted: message });
   const messageKey = waitingMsg.key;
 
   try {
+    // --- Animasi Tunggu ---
+    await delay(1000);
+    await editMessage(sock, sender, `✍️ Mulai menulis: *"${query.slice(0, 20)}..."*`, messageKey);
+    // -----------------------
+
     const apiUrl = `https://szyrineapi.biz.id/api/img/nulis?text=${encodeURIComponent(query)}&apikey=${config.SZYRINE_API_KEY}`;
     const response = await axios.get(apiUrl, { responseType: 'arraybuffer' });
 

@@ -2,7 +2,7 @@
 
 import axios from 'axios';
 import FormData from 'form-data';
-import H from '../../helper.js'; // Mengimpor semua helper sebagai 'H'
+import H from '../../helper.js';
 import { config } from '../../config.js';
 
 // --- METADATA COMMAND ---
@@ -13,25 +13,28 @@ export const aliases = ['nanobanana'];
 
 // --- FUNGSI UTAMA COMMAND ---
 export default async function banana(sock, message, args, query, sender, extras) {
-    const m = message; // Alias untuk pesan
+    const m = message;
     const jid = m.key.remoteJid;
     
-    // Gunakan helper downloadMedia yang lebih cerdas
-    const buffer = await H.downloadMedia(m);
+    const media = await H.downloadMedia(m);
 
-    if (!buffer) {
+    if (!media) {
         return H.sendMessage(sock, jid, '❌ *Gambar tidak ditemukan!*\n\nKirim atau balas gambar dengan caption `!banana <prompt>`', { quoted: m });
     }
 
-    const prompt = query || 'classic nanobanana effect'; // Prompt default jika tidak diberikan
+    const { buffer, mimetype } = media;
+    const prompt = query || 'classic nanobanana effect';
     
     await H.react(sock, jid, m.key, '🍌');
-    const sentMsg = await H.sendMessage(sock, jid, '⏳ Sedang memproses gambar Anda menjadi pisang...', { quoted: m });
+    const sentMsg = await H.sendMessage(sock, jid, '⏳ Menanam pohon pisang...', { quoted: m });
     const messageKey = sentMsg.key;
 
     try {
+        await H.delay(1000);
+        await H.editMessage(sock, jid, `🍌 Mengubah gambar dengan prompt: *${prompt}*`, messageKey);
+
         const form = new FormData();
-        form.append('image', buffer, { filename: 'image.jpg' });
+        form.append('image', buffer, { filename: 'image.jpg', contentType: mimetype });
         form.append('prompt', prompt);
 
         const initialResponse = await axios.post('https://szyrineapi.biz.id/api/img/edit/nanobanana', form, {
@@ -45,7 +48,7 @@ export default async function banana(sock, message, args, query, sender, extras)
         const { statusUrl } = initialResponse.data.result;
         
         let attempts = 0;
-        const maxAttempts = 30; // Timeout ~2 menit
+        const maxAttempts = 30;
         let finalImageUrl = null;
 
         while (attempts < maxAttempts) {

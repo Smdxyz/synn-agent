@@ -1,6 +1,6 @@
 // modules/images/describe.js
 
-import { sendMessage, react, downloadMedia } from '../../helper.js'; // <-- Ubah import
+import { sendMessage, react, downloadMedia } from '../../helper.js';
 import { config } from '../../config.js';
 import FormData from 'form-data';
 import axios from 'axios';
@@ -13,19 +13,20 @@ export const aliases = ['whatisthis'];
 
 // --- FUNGSI UTAMA COMMAND ---
 export default async function describe(sock, message, args, query, sender) {
-  // Gunakan downloadMedia yang lebih cerdas
-  const imageBuffer = await downloadMedia(message);
+  const media = await downloadMedia(message);
 
-  if (!imageBuffer) {
+  if (!media) {
     return sendMessage(sock, sender, 'Kirim atau balas sebuah gambar dengan perintah `!describe` untuk dideskripsikan oleh AI.', { quoted: message });
   }
+
+  const { buffer, mimetype } = media;
 
   try {
     await react(sock, sender, message.key, '👁️');
     
-    // API Szyrine tidak memerlukan API Key untuk endpoint ini
     const form = new FormData();
-    form.append('image', imageBuffer, 'image.jpg');
+    // PERBAIKAN DI SINI
+    form.append('image', buffer, { filename: 'image.jpg', contentType: mimetype });
 
     const { data } = await axios.post('https://szyrineapi.biz.id/api/img/describe/zoner', form, { 
       headers: form.getHeaders() 

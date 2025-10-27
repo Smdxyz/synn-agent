@@ -16,23 +16,25 @@ export const aliases = ['swapface', 'timpa'];
  */
 async function handleFaceImage(sock, message, text, context) {
     const jid = message.key.remoteJid;
-    const { sourceBuffer, originalMessage } = context; // Ambil buffer gambar pertama
+    const { sourceMedia, originalMessage } = context; // Ambil media gambar pertama
 
-    // Gunakan helper untuk mengunduh gambar kedua (wajah)
-    const faceBuffer = await H.downloadMedia(message);
+    const faceMedia = await H.downloadMedia(message);
     
-    if (!faceBuffer) {
+    if (!faceMedia) {
         await H.sendMessage(sock, jid, "❌ Anda harus mengirimkan gambar wajah. Silakan kirim ulang gambarnya.", { quoted: message });
         return false; // Jangan hapus state, biarkan pengguna mencoba lagi
     }
 
-    const sentMsg = await H.sendMessage(sock, jid, '⏳ Kedua gambar diterima. Sedang menukar wajah...', { quoted: message });
+    const sentMsg = await H.sendMessage(sock, jid, '⏳ Kedua gambar diterima. Mempersiapkan operasi...', { quoted: message });
     const messageKey = sentMsg.key;
 
     try {
+        await H.delay(1000);
+        await H.editMessage(sock, jid, `🎭 Menukar wajah... Ini mungkin perlu waktu.`, messageKey);
+
         const form = new FormData();
-        form.append('source', sourceBuffer, { filename: 'source.jpg' });
-        form.append('face', faceBuffer, { filename: 'face.jpg' });
+        form.append('source', sourceMedia.buffer, { filename: 'source.jpg', contentType: sourceMedia.mimetype });
+        form.append('face', faceMedia.buffer, { filename: 'face.jpg', contentType: faceMedia.mimetype });
 
         const { data: jobData } = await axios.post('https://szyrineapi.biz.id/api/img/pixnova/faceswap', form, {
             headers: form.getHeaders(),
@@ -64,24 +66,22 @@ async function handleFaceImage(sock, message, text, context) {
 export default async function faceswap(sock, message, args, query, sender, extras) {
     const jid = message.key.remoteJid;
 
-    // Gunakan helper untuk mengunduh gambar pertama (sumber)
-    const sourceBuffer = await H.downloadMedia(message);
+    const sourceMedia = await H.downloadMedia(message);
     
-    if (!sourceBuffer) {
+    if (!sourceMedia) {
         return H.sendMessage(sock, jid, '❌ *Perintah salah!*\n\nKirim gambar *sumber* (yang ingin ditempeli wajah) dengan caption `!faceswap`.', { quoted: message });
     }
 
     try {
         await H.react(sock, jid, message.key, '1️⃣');
         
-        // Atur bot ke mode "menunggu gambar kedua"
         extras.set(sender, 'faceswap', {
             handler: handleFaceImage,
             context: { 
-                sourceBuffer: sourceBuffer,
-                originalMessage: message // Simpan pesan asli untuk di-quote nanti
+                sourceMedia: sourceMedia, // Simpan seluruh objek media
+                originalMessage: message
             },
-            timeout: 120000 // Beri waktu 2 menit
+            timeout: 120000
         });
 
         await H.sendMessage(sock, jid, '✅ Gambar sumber diterima. Sekarang, silakan kirim gambar *wajah* untuk ditempelkan.', { quoted: message });

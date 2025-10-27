@@ -1,6 +1,6 @@
 // modules/utilities/upload.js (VERSI PERBAIKAN DENGAN EKSTENSI OTOMATIS & API BARU)
 
-import { sendMessage, react, downloadMedia, editMessage } from '../../helper.js';
+import { sendMessage, react, downloadMedia, editMessage, delay } from '../../helper.js';
 import { config } from '../../config.js';
 import FormData from 'form-data';
 import axios from 'axios';
@@ -43,16 +43,22 @@ export default async function upload(sock, message, args, query, sender) {
   const { buffer: fileBuffer, mimetype } = mediaData;
   
   await react(sock, sender, message.key, '📤');
-  const waitingMsg = await sendMessage(sock, sender, `📤 Mengunggah file...`, { quoted: message });
+  const waitingMsg = await sendMessage(sock, sender, `🛰️ Menghubungi server host...`, { quoted: message });
   const messageKey = waitingMsg.key;
 
   try {
+    // --- Animasi Tunggu ---
+    await delay(1500);
+    await editMessage(sock, sender, `📤 Mengunggah file Anda...`, messageKey);
+    // -----------------------
+
     const form = new FormData();
     
     const extension = mimeToExtension(mimetype);
     const filename = `synn-upload-${Date.now()}.${extension}`;
     
-    form.append('file', fileBuffer, filename);
+    // PERBAIKAN PENTING: Sertakan contentType untuk stabilitas
+    form.append('file', fileBuffer, { filename: filename, contentType: mimetype });
 
     // Endpoint baru tidak memerlukan API Key atau parameter expiry
     const { data } = await axios.post(`https://szyrineapi.biz.id/api/utility/upload`, form, { 

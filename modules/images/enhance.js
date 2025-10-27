@@ -1,9 +1,9 @@
-// modules/images/enhance.js (FIXED)
+// modules/images/enhance.js (FIXED & ANIMATED)
 
-import { sendMessage, react, downloadMedia, sendImage, pollPixnovaJob, editMessage } from '../../helper.js';
+import { sendMessage, react, downloadMedia, sendImage, pollPixnovaJob, editMessage, delay } from '../../helper.js';
 import FormData from 'form-data';
 import axios from 'axios';
-import { config } from '../../config.js'; // <-- BARIS INI YANG MEMPERBAIKI ERROR
+import { config } from '../../config.js';
 
 // --- METADATA COMMAND ---
 export const category = 'Images';
@@ -13,22 +13,25 @@ export const aliases = ['hd-enhance'];
 
 // --- FUNGSI UTAMA COMMAND ---
 export default async function enhance(sock, message, args, query, sender) {
-  const imageBuffer = await downloadMedia(message);
+  const media = await downloadMedia(message);
   
-  if (!imageBuffer) {
+  if (!media) {
     return sendMessage(sock, sender, 'Kirim atau balas sebuah gambar untuk di-enhance (peningkatan visual).', { quoted: message });
   }
 
-  // Ambil level kreativitas dari argumen (0.0 - 1.0), default '0.2'
+  const { buffer, mimetype } = media;
   const creative = args[0] && !isNaN(parseFloat(args[0])) ? parseFloat(args[0]) : '0.2';
 
   await react(sock, sender, message.key, '🎨');
-  const sentMsg = await sendMessage(sock, sender, `⏳ Memulai proses enhancement gambar... Ini mungkin butuh waktu.`, { quoted: message });
+  const sentMsg = await sendMessage(sock, sender, `⏳ Menganalisis komposisi gambar...`, { quoted: message });
   const messageKey = sentMsg.key;
 
   try {
+    await delay(1000);
+    await editMessage(sock, sender, `🎨 Memulai proses enhancement... Ini mungkin butuh waktu.`, messageKey);
+
     const form = new FormData();
-    form.append('image', imageBuffer, 'image.jpg');
+    form.append('image', buffer, { filename: 'image.jpg', contentType: mimetype });
     form.append('creative', creative);
 
     const { data: jobData } = await axios.post('https://szyrineapi.biz.id/api/img/pixnova/enhance', form, { 
