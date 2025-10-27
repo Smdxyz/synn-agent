@@ -17,7 +17,7 @@ const getRandomUserAgent = () => userAgents[Math.floor(Math.random() * userAgent
  * @returns {Promise<{title: string, buffer: Buffer}>} Objek berisi judul dan buffer audio.
  */
 export async function downloadYouTubeAudio(youtubeUrl, onProgress = () => {}) {
-    if (!config.SZYRINE_API_KEY || config.SZYRINE_API_KEY === "SANN21") {
+    if (!config.SZYRINE_API_KEY || config.SZYRINE_API_KEY === "1") {
         throw new Error('SZYRINE_API_KEY belum diatur di config.js');
     }
 
