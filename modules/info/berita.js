@@ -1,8 +1,8 @@
-// /modules/info/berita.js (FIXED)
+// /modules/info/berita.js (FIXED with GOT/BUFFER for Images)
 
 import axios from 'axios';
 import { config } from '../../config.js';
-import { sendMessage, sendCarousel, editMessage, react } from '../../helper.js';
+import { sendMessage, sendCarousel, editMessage, react, fetchAsBufferWithMime } from '../../helper.js';
 
 // --- METADATA COMMAND ---
 export const category = 'Info';
@@ -10,19 +10,14 @@ export const description = 'Menampilkan berita teratas dari Kompas.';
 export const usage = `${config.BOT_PREFIX}berita`;
 export const aliases = ['news', 'kompas'];
 
-// Gambar pengganti jika berita tidak memiliki thumbnail
 const FALLBACK_IMAGE_URL = 'https://asset.kompas.com/data/photo/2020/03/11/5e687522c5324.jpg';
 
-// --- Fungsi Pengambilan Data ---
 async function fetchNewsDetail(url) {
     const { data } = await axios.get(`https://szyrineapi.biz.id/api/tools/news/kompas/detail?url=${encodeURIComponent(url)}&apikey=${config.SZYRINE_API_KEY}`);
-    if (data?.status === 200 && data.result) {
-        return data.result;
-    }
+    if (data?.status === 200 && data.result) return data.result;
     throw new Error('Gagal mengambil detail berita.');
 }
 
-// --- Handler untuk Interaksi ---
 async function handleNewsSelection(sock, msg, text, context) {
     const sender = msg.key.remoteJid;
     const selection = parseInt(text.trim(), 10);
@@ -43,12 +38,9 @@ async function handleNewsSelection(sock, msg, text, context) {
     } catch (error) {
         await editMessage(sock, sender, `❌ Gagal memuat detail berita: ${error.message}`, detailMsg.key);
     }
-
-    return true; // Selesai
+    return true;
 }
 
-
-// --- FUNGSI UTAMA COMMAND ---
 export default async function berita(sock, msg, args, query, sender, extras) {
     const progressMsg = await sendMessage(sock, sender, '📰 Mengambil berita teratas dari Kompas...', { quoted: msg });
 
@@ -61,15 +53,35 @@ export default async function berita(sock, msg, args, query, sender, extras) {
 
         const newsItems = data.result.slice(0, 10);
 
-        const carouselItems = newsItems.map((item, index) => ({
-            // ================== PERBAIKAN DI SINI ==================
-            url: item.image || FALLBACK_IMAGE_URL, // Gunakan gambar pengganti jika tidak ada
-            // =======================================================
-            title: `${index + 1}. ${item.title}`,
-            body: `📅 ${item.date}`
-        }));
+        await editMessage(sock, sender, '✅ Berita ditemukan! Menyiapkan tampilan...', progressMsg.key);
+        
+        // ================== PERBAIKAN DI SINI ==================
+        // Unduh semua gambar ke buffer terlebih dahulu
+        const carouselItemsPromises = newsItems.map(async (item, index) => {
+            const imageUrl = item.image || FALLBACK_IMAGE_URL;
+            try {
+                const { buffer } = await fetchAsBufferWithMime(imageUrl);
+                return {
+                    image: buffer, // Kirim buffer, bukan URL
+                    title: `${index + 1}. ${item.title}`,
+                    body: `📅 ${item.date}`
+                };
+            } catch (e) {
+                console.error(`Gagal mengunduh gambar untuk berita: ${item.title}`, e);
+                // Jika satu gambar gagal, gunakan fallback yang diunduh
+                const { buffer: fallbackBuffer } = await fetchAsBufferWithMime(FALLBACK_IMAGE_URL);
+                return {
+                    image: fallbackBuffer,
+                    title: `${index + 1}. ${item.title}`,
+                    body: `📅 ${item.date}`
+                };
+            }
+        });
 
-        await sock.sendMessage(sender, { delete: progressMsg.key });
+        const carouselItems = await Promise.all(carouselItemsPromises);
+        // =======================================================
+
+        await sock.sendMessage(sender, { delete: progressMsg.key }); // Hapus pesan loading
         await sendCarousel(sock, sender, carouselItems, {
             title: '🇮🇩 Berita Teratas Kompas',
             body: 'Geser untuk melihat berita lainnya.',

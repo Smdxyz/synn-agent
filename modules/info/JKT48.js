@@ -1,4 +1,4 @@
-// /modules/info/jkt48.js (REMASTERED & FIXED)
+// /modules/info/jkt48.js (REMASTERED & FIXED AGAIN)
 
 import axios from 'axios';
 import { config } from '../../config.js';
@@ -62,7 +62,9 @@ async function handleSelection(sock, msg, text, context) {
 
 // --- FUNGSI UTAMA COMMAND ---
 export default async function jkt48(sock, msg, args, query, sender, extras) {
+    // ================== PERBAIKAN DI SINI ==================
     const subCommand = (args[0] || '').toLowerCase();
+    // =======================================================
 
     if (!['news', 'schedule'].includes(subCommand)) {
         return sendMessage(sock, sender, `Perintah tidak lengkap.\n\nGunakan:\n- \`${config.BOT_PREFIX}jkt48 news\`\n- \`${config.BOT_PREFIX}jkt48 schedule\``, { quoted: msg });
@@ -75,7 +77,7 @@ export default async function jkt48(sock, msg, args, query, sender, extras) {
         if (subCommand === 'news') {
             items = await fetchNewsList();
             title = '📰 Berita Terbaru JKT48';
-        } else {
+        } else { // subCommand === 'schedule'
             const { data } = await axios.get(`https://szyrineapi.biz.id/api/tools/news/jkt48/schedule?apikey=${config.SZYRINE_API_KEY}`);
             items = data.result;
             title = '🗓️ Jadwal JKT48 Mendatang';
@@ -83,8 +85,6 @@ export default async function jkt48(sock, msg, args, query, sender, extras) {
         
         if (!items || items.length === 0) throw new Error('Tidak ada data yang ditemukan.');
 
-        // ================== PERUBAHAN DI SINI ==================
-        // Mengubah dari Carousel menjadi Teks Biasa
         const itemsToShow = items.slice(0, 10);
         let listText = `*${title}*\n\n`;
         itemsToShow.forEach((item, index) => {
@@ -93,7 +93,6 @@ export default async function jkt48(sock, msg, args, query, sender, extras) {
         listText += `Balas dengan nomor (1-${itemsToShow.length}) untuk melihat detail. Waktu 60 detik.`;
 
         await editMessage(sock, sender, listText, progressMsg.key);
-        // =======================================================
 
         extras.set(sender, 'jkt48_detail', {
             timeout: 60000,
