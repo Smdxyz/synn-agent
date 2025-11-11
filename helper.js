@@ -7,6 +7,13 @@ import { downloadContentFromMessage } from '@whiskeysockets/baileys';
 import { config } from './config.js';
 import FormData from 'form-data';
 import axios from 'axios';
+// DITAMBAHKAN: Impor fungsi-fungsi baru dari baileys_helper dengan alias
+import { 
+    sendButtons as sendNativeButtons, 
+    sendList as sendNativeList,
+    sendCarousel as sendNativeCarousel
+} from 'baileys_helper';
+
 
 // ============================ UTILITAS DASAR =================================
 export const delay = (ms = 500) => new Promise((r) => setTimeout(r, ms));
@@ -67,22 +74,53 @@ export const sendLocation = async (sock, jid, latitude, longitude, options = {})
     return sock.sendMessage(jid, { location: { degreesLatitude: latitude, degreesLongitude: longitude } }, options);
 };
 
-// ============================ PENGIRIM PESAN INTERAKTIF ============================
+// ============================ PENGIRIM PESAN INTERAKTIF (VERSI BARU) ============================
+
+// DIUBAH: Menggunakan sendNativeCarousel dari baileys_helper
 export const sendCarousel = async (sock, jid, items = [], options = {}) => {
   if (!Array.isArray(items) || items.length === 0) throw new Error('Items (kartu) tidak boleh kosong.');
-  const cards = items.map(item => ({ image: { url: item.url }, title: item.title || '', body: item.body || '', ...(Array.isArray(item.buttons) && { buttons: item.buttons }), }));
-  const messagePayload = { text: options.text || '', title: options.title || '', footer: options.footer || '', cards, };
-  return sock.sendMessage(jid, messagePayload);
+  
+  // Strukturnya mungkin sedikit berbeda, sesuaikan dengan dokumentasi baileys_helper jika perlu.
+  // Asumsi formatnya mirip.
+  const payload = {
+    text: options.text || '',
+    title: options.title || '',
+    footer: options.footer || '',
+    cards: items, // 'items' di sini harusnya sudah dalam format yang benar
+  };
+  return sendNativeCarousel(sock, jid, payload, options);
 };
 
+// DIUBAH: Menggunakan sendNativeList dari baileys_helper
 export const sendList = async (sock, jid, title, text, buttonText, sections = [], options = {}) => {
-  const listMessage = { title, text, buttonText, sections };
-  return sock.sendMessage(jid, listMessage, options);
+  // baileys_helper mungkin menggunakan format yang sedikit berbeda,
+  // kita adaptasi ke format yang umum digunakan.
+  const payload = {
+      title: title,
+      text: text,
+      buttonText: buttonText,
+      sections: sections
+  };
+  return sendNativeList(sock, jid, payload, options);
 };
 
+// DIUBAH: Menggunakan sendNativeButtons dari baileys_helper
 export const sendButtons = async (sock, jid, text, footer, buttons = [], options = {}) => {
-  const buttonsMessage = { text, footer, buttons: buttons.map(b => ({ buttonId: b.buttonId, buttonText: { displayText: b.displayText }, type: 1 })), };
-  return sock.sendMessage(jid, buttonsMessage, options);
+  // 1. Konversi format tombol lama ke format sederhana {id, text} yang diterima baileys_helper
+  const convertedButtons = buttons.map(b => ({
+      id: b.buttonId,
+      text: b.buttonText.displayText
+  }));
+
+  // 2. Siapkan payload untuk baileys_helper
+  const payload = {
+      text: text,
+      footer: footer,
+      buttons: convertedButtons
+  };
+
+  // 3. Panggil fungsi dari pustaka baru
+  return sendNativeButtons(sock, jid, payload, options);
 };
 
 // ============================ AKSI PESAN & STATUS ============================
@@ -109,10 +147,6 @@ export const typing = async (sock, jid, seconds = 1.25) => {
 
 
 // ============================ DOWNLOADER / MIME (MENGGUNAKAN 'got') ============================
-
-/**
- * Mengunduh konten dari URL sebagai Buffer, menggunakan 'got' dengan penyamaran lengkap.
- */
 export const fetchAsBufferWithMime = async (url) => {
   try {
     const response = await got(url, {
@@ -131,13 +165,12 @@ export const fetchAsBufferWithMime = async (url) => {
         },
         http2: true,
         timeout: {
-            request: 30000 // Timeout 30 detik
+            request: 30000 
         },
         retry: {
-            limit: 2 // Coba lagi 2x jika gagal
+            limit: 2 
         }
     });
-
     const mimetype = response.headers['content-type'] || '';
     return { buffer: response.body, mimetype };
   } catch (error) {
@@ -147,26 +180,17 @@ export const fetchAsBufferWithMime = async (url) => {
   }
 };
 
-
-/**
- * Mengunduh media (gambar/video/stiker) dari pesan.
- * @returns {Promise<{buffer: Buffer, mimetype: string}|null>} Objek berisi buffer dan mimetype, atau null jika gagal.
- */
 export const downloadMedia = async (message) => {
     let mediaMessage = message.message?.imageMessage || 
                        message.message?.videoMessage ||
                        message.message?.stickerMessage;
-    
-    // Logika untuk mencari di pesan yang dibalas (quoted)
     if (!mediaMessage) {
         const quoted = message.message?.extendedTextMessage?.contextInfo?.quotedMessage;
         if (quoted) {
             mediaMessage = quoted.imageMessage || quoted.videoMessage || quoted.stickerMessage;
         }
     }
-
     if (!mediaMessage) return null;
-
     try {
         const mimetype = mediaMessage.mimetype;
         const stream = await downloadContentFromMessage(
@@ -174,7 +198,6 @@ export const downloadMedia = async (message) => {
             mediaMessage.videoMessage ? 'video' : (mediaMessage.stickerMessage ? 'sticker' : 'image')
         );
         const buffer = await streamToBuffer(stream);
-        
         return { buffer, mimetype };
     } catch (e) {
         console.error("Gagal mengunduh media:", e);
@@ -184,25 +207,13 @@ export const downloadMedia = async (message) => {
 
 
 // ============================ IMAGE HELPER & UPLOADER (MENGGUNAKAN 'axios') ============================
-
-/**
- * Mengunggah buffer gambar/file ke Szyrine API (ENDPOINT BARU).
- *
- * @param {Buffer} buffer - Buffer dari gambar yang akan diunggah.
- * @param {string} mimetype - Tipe MIME dari gambar (contoh: 'image/jpeg').
- * @returns {Promise<string>} URL dari gambar yang berhasil diunggah.
- */
-export const uploadImage = async (buffer, mimetype = 'image/jpeg') => { // <-- PERUBAHAN 1: Terima mimetype
+export const uploadImage = async (buffer, mimetype = 'image/jpeg') => { 
     const form = new FormData();
-    // V-- PERUBAHAN 2: Gunakan metode append yang lebih robust dengan contentType
     form.append('file', buffer, { filename: 'image.jpg', contentType: mimetype }); 
-    
     const uploadUrl = `https://szyrineapi.biz.id/api/utility/upload`;
-
     const { data } = await axios.post(uploadUrl, form, {
         headers: form.getHeaders()
     });
-
     if (data.result?.file?.url) {
         return data.result.file.url;
     } else {
@@ -210,17 +221,12 @@ export const uploadImage = async (buffer, mimetype = 'image/jpeg') => { // <-- P
     }
 };
 
-
-/**
- * Polling untuk job Pixnova sampai selesai atau gagal.
- */
 export const pollPixnovaJob = async (statusUrl) => {
     for (let i = 0; i < 20; i++) {
         await delay(3000);
         try {
             const data = await got(statusUrl).json();
             if (data.result?.status === 'completed') {
-                // Beradaptasi dengan berbagai kemungkinan struktur hasil
                 return data.result.result.imageUrl || data.result.result.url || data.result.result_url;
             }
             if (data.result?.status === 'failed' || data.result?.status === 'error') {

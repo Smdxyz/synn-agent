@@ -9,7 +9,8 @@
     "dev": "node --watch index.js"
   },
   "dependencies": {
-    "@whiskeysockets/baileys": "github:Ryuu311/Whiskeysockets-Baileys",
+    "@whiskeysockets/baileys": "^7.0.0-rc.6",
+    "baileys_helper": "^1.2.0",
     "axios": "^1.7.7",
     "cheerio": "^1.0.0-rc.12",
     "form-data": "^4.0.0",
