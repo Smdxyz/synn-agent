@@ -1,7 +1,7 @@
-// libs/youtubeDownloader.js (UPGRADED WITH PROGRESS BAR)
+// libs/youtubeDownloader.js (FIXED - .buffer() error)
 
 import got from 'got';
-import { sleep } from './utils.js'; // <-- PERBAIKAN PATH IMPORT
+import { sleep, toBuffer } from './utils.js'; // <-- TAMBAHKAN 'toBuffer'
 import { config } from '../config.js';
 
 const userAgents = [
@@ -9,11 +9,6 @@ const userAgents = [
 ];
 const getRandomUserAgent = () => userAgents[Math.floor(Math.random() * userAgents.length)];
 
-/**
- * Membuat progress bar berbasis teks.
- * @param {number} progress Persentase (0-100).
- * @returns {string} String progress bar.
- */
 function createProgressBar(progress) {
     const totalBars = 15;
     const filledBars = Math.round((progress / 100) * totalBars);
@@ -21,9 +16,6 @@ function createProgressBar(progress) {
     return `[${'█'.repeat(filledBars)}${'░'.repeat(emptyBars)}] ${progress.toFixed(0)}%`;
 }
 
-/**
- * Mengunduh audio dari URL YouTube dengan progress bar.
- */
 export async function downloadYouTubeAudio(youtubeUrl, onProgress = () => {}) {
     if (!config.SZYRINE_API_KEY || config.SZYRINE_API_KEY === "1") {
         throw new Error('SZYRINE_API_KEY belum diatur di config.js');
@@ -42,7 +34,7 @@ export async function downloadYouTubeAudio(youtubeUrl, onProgress = () => {}) {
         await onProgress(`⏳ Pekerjaan diterima (ID: ${jobId.substring(0, 8)}). Memeriksa status...`);
 
         let finalResult = null;
-        for (let i = 0; i < 45; i++) { // Coba selama ~3 menit
+        for (let i = 0; i < 45; i++) {
             await sleep(4000);
             const statusData = await got(statusCheckUrl, { timeout: { request: 15000 } }).json();
             const { result: jobDetails } = statusData;
@@ -71,13 +63,16 @@ export async function downloadYouTubeAudio(youtubeUrl, onProgress = () => {}) {
             headers: { 'User-Agent': getRandomUserAgent(), 'Referer': 'https://www.google.com/' }
         });
 
-        // Progress bar untuk download dari 'got'
         downloadStream.on('downloadProgress', async (progress) => {
             const percent = progress.percent * 100;
-            await onProgress(`📥 Mengunduh audio...\n${createProgressBar(percent)}`);
+            if (percent < 100) { // Hanya update jika belum selesai
+                await onProgress(`📥 Mengunduh audio...\n${createProgressBar(percent)}`);
+            }
         });
 
-        const audioBuffer = await downloadStream.buffer();
+        // --- INI PERBAIKAN UTAMANYA ---
+        // Gunakan fungsi toBuffer untuk mengubah stream menjadi buffer
+        const audioBuffer = await toBuffer(downloadStream);
 
         return { title, buffer: audioBuffer };
 
