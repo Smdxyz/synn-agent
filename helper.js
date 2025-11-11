@@ -12,7 +12,7 @@ import {
     sendButtons as sendNativeButtons, 
     sendList as sendNativeList,
     sendCarousel as sendNativeCarousel
-} from 'baileys_helper';
+} from 'baileys_helpers';
 
 
 // ============================ UTILITAS DASAR =================================
