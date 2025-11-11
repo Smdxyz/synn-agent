@@ -1,20 +1,9 @@
-// /modules/downloader/ytmp3.js (FINAL PATH FIXED)
+// /modules/downloader/ytmp3.js
 
-// <-- PERBAIKAN PATH: Naik dua level untuk menemukan file di root
 import { config } from '../../config.js';
 import { sendMessage, sendAudio, editMessage, react } from '../../helper.js';
-
-// <-- PERBAIKAN PATH: Naik dua level lalu masuk ke folder 'libs'
 import { downloadYouTubeAudio } from '../../libs/youtubeDownloader.js';
-
-function formatBytes(bytes, decimals = 2) {
-    if (!+bytes) return '0 Bytes';
-    const k = 1024;
-    const dm = decimals < 0 ? 0 : decimals;
-    const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return `${parseFloat((bytes / Math.pow(k, i)).toFixed(dm))} ${sizes[i]}`;
-}
+import { formatBytes } from '../../libs/utils.js'; // <-- Gunakan formatBytes dari utils.js
 
 export default async function(sock, message, args, query, sender, extras) {
     const userUrl = query;

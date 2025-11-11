@@ -1,20 +1,28 @@
-// libs/youtubeDownloader.js (ENDPOINT BARU)
+// libs/youtubeDownloader.js (UPGRADED WITH PROGRESS BAR)
 
 import got from 'got';
-import { sleep } from '../helper.js';
+import { sleep } from './utils.js'; // <-- PERBAIKAN PATH IMPORT
 import { config } from '../config.js';
 
 const userAgents = [
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/109.0.0.0 Safari/537.36',
-    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/109.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/109.0.0.0 Safari/536.36',
 ];
 const getRandomUserAgent = () => userAgents[Math.floor(Math.random() * userAgents.length)];
 
 /**
- * Mengunduh audio dari URL YouTube menggunakan Szyrine API dengan pola job & status check.
- * @param {string} youtubeUrl URL video YouTube.
- * @param {function} onProgress Callback untuk melaporkan kemajuan, menerima string sebagai argumen.
- * @returns {Promise<{title: string, buffer: Buffer}>} Objek berisi judul dan buffer audio.
+ * Membuat progress bar berbasis teks.
+ * @param {number} progress Persentase (0-100).
+ * @returns {string} String progress bar.
+ */
+function createProgressBar(progress) {
+    const totalBars = 15;
+    const filledBars = Math.round((progress / 100) * totalBars);
+    const emptyBars = totalBars - filledBars;
+    return `[${'█'.repeat(filledBars)}${'░'.repeat(emptyBars)}] ${progress.toFixed(0)}%`;
+}
+
+/**
+ * Mengunduh audio dari URL YouTube dengan progress bar.
  */
 export async function downloadYouTubeAudio(youtubeUrl, onProgress = () => {}) {
     if (!config.SZYRINE_API_KEY || config.SZYRINE_API_KEY === "1") {
@@ -23,9 +31,7 @@ export async function downloadYouTubeAudio(youtubeUrl, onProgress = () => {}) {
 
     try {
         await onProgress('⏳ Memulai permintaan unduh...');
-        // ================== PERUBAHAN ENDPOINT DI SINI ==================
         const initialApiUrl = `https://szyrineapi.biz.id/api/dl/youtube/mp3?url=${encodeURIComponent(youtubeUrl)}&apikey=${config.SZYRINE_API_KEY}`;
-        // =============================================================
         const initialData = await got(initialApiUrl, { timeout: { request: 30000 } }).json();
 
         if (initialData.result?.status === 'failed' || !initialData.result.jobId) {
@@ -36,7 +42,7 @@ export async function downloadYouTubeAudio(youtubeUrl, onProgress = () => {}) {
         await onProgress(`⏳ Pekerjaan diterima (ID: ${jobId.substring(0, 8)}). Memeriksa status...`);
 
         let finalResult = null;
-        for (let i = 0; i < 30; i++) { // Coba selama ~2 menit (30 * 4 detik)
+        for (let i = 0; i < 45; i++) { // Coba selama ~3 menit
             await sleep(4000);
             const statusData = await got(statusCheckUrl, { timeout: { request: 15000 } }).json();
             const { result: jobDetails } = statusData;
@@ -47,7 +53,8 @@ export async function downloadYouTubeAudio(youtubeUrl, onProgress = () => {}) {
             } else if (jobDetails?.status === 'failed') {
                 throw new Error(jobDetails.message || 'Proses di server backend gagal.');
             } else if (jobDetails.message && (jobDetails.status === 'processing' || jobDetails.status === 'pending')) {
-                await onProgress(`⏳ ${jobDetails.message}`);
+                const progress = jobDetails.progress || 0;
+                await onProgress(`⏳ ${jobDetails.message}\n${createProgressBar(progress)}`);
             }
         }
 
@@ -59,11 +66,18 @@ export async function downloadYouTubeAudio(youtubeUrl, onProgress = () => {}) {
         if (!link) throw new Error('API berhasil tapi tidak mengembalikan link download.');
 
         await onProgress('✅ Link didapat! Mengunduh audio...');
-        const audioBuffer = await got(link, {
-            responseType: 'buffer',
-            timeout: { request: 300000 }, // 5 menit
+        
+        const downloadStream = got.stream(link, {
             headers: { 'User-Agent': getRandomUserAgent(), 'Referer': 'https://www.google.com/' }
-        }).buffer();
+        });
+
+        // Progress bar untuk download dari 'got'
+        downloadStream.on('downloadProgress', async (progress) => {
+            const percent = progress.percent * 100;
+            await onProgress(`📥 Mengunduh audio...\n${createProgressBar(percent)}`);
+        });
+
+        const audioBuffer = await downloadStream.buffer();
 
         return { title, buffer: audioBuffer };
 

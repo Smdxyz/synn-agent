@@ -1,4 +1,4 @@
-// modules/downloader/play.js (ENDPOINT BARU)
+// modules/downloader/play.js
 
 import { config } from '../../config.js';
 import { formatBytes } from '../../libs/utils.js';
@@ -7,17 +7,11 @@ import { downloadYouTubeAudio } from '../../libs/youtubeDownloader.js';
 import got from 'got';
 import he from 'he';
 
-/**
- * Mencari video di YouTube menggunakan endpoint baru.
- * @param {string} query Judul lagu/video yang dicari.
- * @returns {Promise<object>} Objek hasil pencarian pertama.
- */
 async function searchYouTube(query) {
     const searchUrl = `https://szyrineapi.biz.id/api/dl/youtube/search?q=${encodeURIComponent(query)}&apikey=${config.SZYRINE_API_KEY}`;
     const { result: searchResults } = await got(searchUrl).json();
-
     if (searchResults && Array.isArray(searchResults) && searchResults.length > 0) {
-        return searchResults[0]; // Ambil hasil pertama
+        return searchResults[0];
     }
     throw new Error(`Tidak menemukan hasil untuk "${query}"`);
 }
@@ -39,7 +33,6 @@ export default async (sock, msg, args, text, sender) => {
         
         await editProgress(`✅ Lagu ditemukan!\n*Judul:* ${videoTitle}\n\nMemulai proses unduh...`);
 
-        // Panggil fungsi downloader yang sudah ada
         const { title, buffer } = await downloadYouTubeAudio(searchResult.url, editProgress);
 
         await editProgress('✅ Audio berhasil diunduh. Mengirim ke kamu...');

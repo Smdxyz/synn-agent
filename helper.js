@@ -1,4 +1,4 @@
-// helper.js — THE ULTIMATE VERSION (ALL FEATURES INCLUDED)
+// helper.js — FINAL VERSION (FIXED 'sleep' EXPORT)
 
 import got from 'got';
 import { 
@@ -15,13 +15,13 @@ import FormData from 'form-data';
 import axios from 'axios';
 import baileysHelpers from 'baileys_helpers';
 import { zip } from 'fflate';
-// Impor fungsi dari utils.js yang baru kita buat
-import { getStream, toBuffer, sleep as delay } from './libs/utils.js';
+// Impor fungsi dari utils.js, termasuk 'sleep'
+import { getStream, toBuffer, sleep } from './libs/utils.js';
 
 // ============================ UTILITAS =================================
 const sha256 = (data) => createHash('sha256').update(data).digest();
-// Ekspor ulang fungsi dari utils agar bisa diakses dari H.delay
-export { delay };
+// Ekspor ulang 'sleep' agar bisa diakses dari H.sleep atau diimpor langsung
+export { sleep };
 
 // ============================ PENGIRIM PESAN DASAR ============================
 export const sendMessage = async (sock, jid, text, options = {}) => sock.sendMessage(jid, { text }, options);
@@ -49,20 +49,12 @@ export const sendDoc = async (sock, jid, urlOrBuffer, fileName = 'file', mimetyp
 
 // ============================ PENGIRIM PESAN TIPE KHUSUS ============================
 
-/**
- * Mengirim stiker dari gambar atau video.
- * Catatan: Media harus sudah dikonversi menjadi Buffer WebP sebelum memanggil fungsi ini.
- */
 export const sendSticker = async (sock, jid, stickerBuffer, options = {}) => {
     return sock.sendMessage(jid, { sticker: stickerBuffer, ...options });
 };
 
-/**
- * Mengirim paket stiker kustom, meniru logika itsukichan.
- */
 export const sendStickerPack = async (sock, jid, packData, options = {}) => {
     const { stickers, cover, name, publisher, packId, description } = packData;
-
     const stickerData = {};
     const stickerPromises = stickers.map(async (s, i) => {
         const { stream } = await getStream(s.sticker);
@@ -70,47 +62,27 @@ export const sendStickerPack = async (sock, jid, packData, options = {}) => {
         const hash = sha256(buffer).toString('base64url');
         const fileName = `${i.toString().padStart(2, '0')}_${hash}.webp`;
         stickerData[fileName] = [new Uint8Array(buffer), { level: 0 }];
-
-        return {
-            fileName,
-            mimetype: 'image/webp',
-            isAnimated: s.isAnimated || false,
-            isLottie: s.isLottie || false,
-            emojis: s.emojis || [],
-            accessibilityLabel: s.accessibilityLabel || ''
-        };
+        return { fileName, mimetype: 'image/webp', isAnimated: s.isAnimated || false, isLottie: s.isLottie || false, emojis: s.emojis || [], accessibilityLabel: s.accessibilityLabel || '' };
     });
-
     const stickerMetadata = await Promise.all(stickerPromises);
-
     const zipBuffer = await new Promise((resolve, reject) => {
         zip(stickerData, (err, data) => err ? reject(err) : resolve(Buffer.from(data)));
     });
-
     const { stream: coverStream } = await getStream(cover);
     const coverBuffer = await toBuffer(coverStream);
     const userJid = sock.user.id;
-
     const [stickerPackUploadResult, coverUploadResult] = await Promise.all([
         sock.waUploadToServer(zipBuffer, { mediaType: 'sticker-pack' }),
-        prepareWAMessageMedia({ image: coverBuffer }, { 
-            upload: sock.waUploadToServer,
-            mediaTypeOverride: 'image',
-            logger: sock.logger,
-            options: sock.options,
-            userJid
-        })
+        prepareWAMessageMedia({ image: coverBuffer }, { upload: sock.waUploadToServer, mediaTypeOverride: 'image', logger: sock.logger, options: sock.options, userJid })
     ]);
-
     const coverImage = coverUploadResult.imageMessage;
     const imageDataHash = sha256(coverBuffer).toString('base64');
     const stickerPackId = packId || generateMessageID();
-
     const finalContent = {
         stickerPackMessage: {
             name, publisher, stickerPackId,
             packDescription: description,
-            stickerPackOrigin: 1, // THIRD_PARTY
+            stickerPackOrigin: 1,
             stickerPackSize: stickerPackUploadResult.fileLength,
             stickers: stickerMetadata,
             fileSha256: stickerPackUploadResult.fileSha256,
@@ -128,7 +100,6 @@ export const sendStickerPack = async (sock, jid, packData, options = {}) => {
             thumbnailWidth: coverImage.width
         }
     };
-    
     return sock.sendMessage(jid, finalContent, options);
 };
 
@@ -147,12 +118,12 @@ export const sendAlbum = async (sock, jid, albumPayload = [], options = {}) => {
     await sock.relayMessage(jid, containerMsg.message, { messageId: containerMsg.key.id });
     const sentMessages = [containerMsg];
     for (const media of albumPayload) {
-        await delay(100);
+        await sleep(100);
         const mediaMsg = await generateWAMessage(jid, media, { ...options, userJid, upload: sock.waUploadToServer });
         mediaMsg.message.messageContextInfo = {
             messageSecret: randomBytes(32),
             messageAssociation: {
-                associationType: 1, // WAProto.MessageAssociation.Type.ALBUM
+                associationType: 1,
                 parentMessageKey: containerMsg.key
             }
         };
@@ -256,7 +227,7 @@ export const setPresence = async (sock, jid, state = 'composing') => {
   try { await sock.sendPresenceUpdate(state, jid); } catch { }
 };
 export const typing = async (sock, jid, seconds = 1.25) => {
-  await setPresence(sock, jid, 'composing'); await delay(seconds * 1000); await setPresence(sock, jid, 'paused');
+  await setPresence(sock, jid, 'composing'); await sleep(seconds * 1000); await setPresence(sock, jid, 'paused');
 };
 export const fetchAsBufferWithMime = async (url) => {
   try {
@@ -310,7 +281,7 @@ export const uploadImage = async (buffer, mimetype = 'image/jpeg') => {
 };
 export const pollPixnovaJob = async (statusUrl) => {
     for (let i = 0; i < 20; i++) {
-        await delay(3000);
+        await sleep(3000);
         try {
             const data = await got(statusUrl).json();
             if (data.result?.status === 'completed') return data.result.result.imageUrl || data.result.result.url || data.result.result_url;
@@ -322,7 +293,7 @@ export const pollPixnovaJob = async (statusUrl) => {
 
 // ============================ EXPORT DEFAULT =================================
 export default {
-  delay,
+  sleep,
   sendMessage, sendText: sendMessage,
   sendImage, sendAudio, sendVideo, sendGif, sendDoc,
   sendSticker, sendStickerPack, sendAlbum, sendPoll, sendContact, sendLocation,
