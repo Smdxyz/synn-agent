@@ -1,4 +1,4 @@
-// helper.js — FINAL VERSION (SUPER SMART downloadMedia)
+// helper.js — THE ULTIMATE VERSION (ALL FEATURES INCLUDED)
 
 import got from 'got';
 import { 
@@ -6,20 +6,24 @@ import {
     generateWAMessage,
     generateWAMessageContent,
     generateWAMessageFromContent,
-    generateMessageID 
+    generateMessageID,
+    prepareWAMessageMedia
 } from '@whiskeysockets/baileys';
-import { randomBytes } from 'crypto';
+import { randomBytes, createHash } from 'crypto';
 import { config } from './config.js';
 import FormData from 'form-data';
 import axios from 'axios';
 import baileysHelpers from 'baileys_helpers';
+import { zip } from 'fflate';
+// Impor fungsi dari utils.js yang baru kita buat
+import { getStream, toBuffer, sleep as delay } from './utils.js';
 
-// ... (SEMUA KODE DARI UTILITAS DASAR SAMPAI SEBELUM downloadMedia TETAP SAMA) ...
-export const delay = (ms = 500) => new Promise((r) => setTimeout(r, ms));
-export const sleep = delay;
-export const tryDo = async (fn, fallback = null) => { try { return await fn(); } catch { return fallback; } };
-export const chunk = (arr, size = 10) => { const out = []; for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size)); return out; };
-const streamToBuffer = async (stream) => { const chunks = []; for await (const chunk of stream) chunks.push(chunk); return Buffer.concat(chunks); };
+// ============================ UTILITAS =================================
+const sha256 = (data) => createHash('sha256').update(data).digest();
+// Ekspor ulang fungsi dari utils agar bisa diakses dari H.delay
+export { delay };
+
+// ============================ PENGIRIM PESAN DASAR ============================
 export const sendMessage = async (sock, jid, text, options = {}) => sock.sendMessage(jid, { text }, options);
 export { sendMessage as sendText };
 export const sendImage = async (sock, jid, urlOrBuffer, caption = '', viewOnce = false, options = {}) => {
@@ -42,6 +46,92 @@ export const sendDoc = async (sock, jid, urlOrBuffer, fileName = 'file', mimetyp
   const document = Buffer.isBuffer(urlOrBuffer) ? urlOrBuffer : { url: urlOrBuffer };
   return sock.sendMessage(jid, { document, fileName, mimetype }, options);
 };
+
+// ============================ PENGIRIM PESAN TIPE KHUSUS ============================
+
+/**
+ * Mengirim stiker dari gambar atau video.
+ * Catatan: Media harus sudah dikonversi menjadi Buffer WebP sebelum memanggil fungsi ini.
+ */
+export const sendSticker = async (sock, jid, stickerBuffer, options = {}) => {
+    return sock.sendMessage(jid, { sticker: stickerBuffer, ...options });
+};
+
+/**
+ * Mengirim paket stiker kustom, meniru logika itsukichan.
+ */
+export const sendStickerPack = async (sock, jid, packData, options = {}) => {
+    const { stickers, cover, name, publisher, packId, description } = packData;
+
+    const stickerData = {};
+    const stickerPromises = stickers.map(async (s, i) => {
+        const { stream } = await getStream(s.sticker);
+        const buffer = await toBuffer(stream);
+        const hash = sha256(buffer).toString('base64url');
+        const fileName = `${i.toString().padStart(2, '0')}_${hash}.webp`;
+        stickerData[fileName] = [new Uint8Array(buffer), { level: 0 }];
+
+        return {
+            fileName,
+            mimetype: 'image/webp',
+            isAnimated: s.isAnimated || false,
+            isLottie: s.isLottie || false,
+            emojis: s.emojis || [],
+            accessibilityLabel: s.accessibilityLabel || ''
+        };
+    });
+
+    const stickerMetadata = await Promise.all(stickerPromises);
+
+    const zipBuffer = await new Promise((resolve, reject) => {
+        zip(stickerData, (err, data) => err ? reject(err) : resolve(Buffer.from(data)));
+    });
+
+    const { stream: coverStream } = await getStream(cover);
+    const coverBuffer = await toBuffer(coverStream);
+    const userJid = sock.user.id;
+
+    const [stickerPackUploadResult, coverUploadResult] = await Promise.all([
+        sock.waUploadToServer(zipBuffer, { mediaType: 'sticker-pack' }),
+        prepareWAMessageMedia({ image: coverBuffer }, { 
+            upload: sock.waUploadToServer,
+            mediaTypeOverride: 'image',
+            logger: sock.logger,
+            options: sock.options,
+            userJid
+        })
+    ]);
+
+    const coverImage = coverUploadResult.imageMessage;
+    const imageDataHash = sha256(coverBuffer).toString('base64');
+    const stickerPackId = packId || generateMessageID();
+
+    const finalContent = {
+        stickerPackMessage: {
+            name, publisher, stickerPackId,
+            packDescription: description,
+            stickerPackOrigin: 1, // THIRD_PARTY
+            stickerPackSize: stickerPackUploadResult.fileLength,
+            stickers: stickerMetadata,
+            fileSha256: stickerPackUploadResult.fileSha256,
+            fileEncSha256: stickerPackUploadResult.fileEncSha256,
+            mediaKey: stickerPackUploadResult.mediaKey,
+            directPath: stickerPackUploadResult.directPath,
+            fileLength: stickerPackUploadResult.fileLength,
+            mediaKeyTimestamp: stickerPackUploadResult.mediaKeyTimestamp,
+            trayIconFileName: `${stickerPackId}.png`,
+            imageDataHash,
+            thumbnailDirectPath: coverImage.directPath,
+            thumbnailFileSha256: coverImage.fileSha256,
+            thumbnailFileEncSha256: coverImage.fileEncSha256,
+            thumbnailHeight: coverImage.height,
+            thumbnailWidth: coverImage.width
+        }
+    };
+    
+    return sock.sendMessage(jid, finalContent, options);
+};
+
 export const sendAlbum = async (sock, jid, albumPayload = [], options = {}) => {
     if (!Array.isArray(albumPayload) || albumPayload.length === 0) {
         throw new Error("Payload untuk album tidak boleh kosong.");
@@ -71,6 +161,7 @@ export const sendAlbum = async (sock, jid, albumPayload = [], options = {}) => {
     }
     return sentMessages;
 };
+
 export const sendPoll = async (sock, jid, name, values, options = {}) => {
   return sock.sendMessage(jid, { poll: { name, values, selectableCount: 1 } }, options);
 };
@@ -81,6 +172,9 @@ export const sendContact = async (sock, jid, fullName, org, waid, options = {}) 
 export const sendLocation = async (sock, jid, latitude, longitude, options = {}) => {
     return sock.sendMessage(jid, { location: { degreesLatitude: latitude, degreesLongitude: longitude } }, options);
 };
+
+// ============================ PENGIRIM PESAN INTERAKTIF ============================
+
 export const sendCarousel = async (sock, jid, cards = [], options = {}) => {
   if (!Array.isArray(cards) || cards.length === 0) {
     throw new Error('Payload `cards` tidak boleh kosong.');
@@ -139,6 +233,7 @@ export const sendCarousel = async (sock, jid, cards = [], options = {}) => {
   await sock.relayMessage(jid, fullMsg.message, { messageId: fullMsg.key.id });
   return fullMsg;
 };
+
 export const sendList = async (sock, jid, title, text, buttonText, sections = [], options = {}) => {
   const listMessage = { text, footer: options.footer || '', title, buttonText, sections };
   return sock.sendMessage(jid, listMessage, options);
@@ -148,6 +243,9 @@ export const sendButtons = async (sock, jid, text, footer, buttons = [], options
   return baileysHelpers.sendButtons(sock, jid, payload, options);
 };
 export const sendInteractiveMessage = baileysHelpers.sendInteractiveMessage;
+
+
+// ============================ AKSI PESAN & STATUS ============================
 export const react = async (sock, jid, key, emoji = '✅') => {
   try { return await sock.sendMessage(jid, { react: { text: emoji, key } }); } catch { }
 };
@@ -175,51 +273,33 @@ export const fetchAsBufferWithMime = async (url) => {
     throw new Error(`Gagal mengunduh konten. Server tujuan menolak dengan status: ${status}`);
   }
 };
-
-// ============================ INI BAGIAN YANG DIPERBAIKI ============================
-/**
- * Mengunduh media dari pesan, sekarang mendukung balasan ke Carousel.
- */
 export const downloadMedia = async (message) => {
     let mediaMessage = message.message?.imageMessage || message.message?.videoMessage || message.message?.stickerMessage;
-    
-    // Jika tidak ada media di pesan utama, cek pesan yang di-reply (quoted)
     if (!mediaMessage) {
         const quoted = message.message?.extendedTextMessage?.contextInfo?.quotedMessage;
         if (quoted) {
-            // Cek media simpel dulu
             mediaMessage = quoted.imageMessage || quoted.videoMessage || quoted.stickerMessage;
-
-            // Jika masih kosong, cek apakah ini balasan ke pesan interaktif (seperti Carousel)
             if (!mediaMessage) {
                 const interactiveMsg = quoted.viewOnceMessageV2Extension?.message?.interactiveMessage || quoted.interactiveMessage;
-                
                 if (interactiveMsg) {
-                    // Cek untuk Carousel
                     const carouselCards = interactiveMsg.carouselMessage?.cards;
                     if (carouselCards && carouselCards.length > 0) {
-                        // Ambil media dari KARTU PERTAMA sebagai default
                         mediaMessage = carouselCards[0].header?.imageMessage || carouselCards[0].header?.videoMessage;
                     }
                 }
             }
         }
     }
-
     if (!mediaMessage) return null;
-
     try {
         const mimetype = mediaMessage.mimetype;
         const stream = await downloadContentFromMessage(mediaMessage, mediaMessage.videoMessage ? 'video' : (mediaMessage.stickerMessage ? 'sticker' : 'image'));
-        const buffer = await streamToBuffer(stream);
+        const buffer = await toBuffer(stream);
         return { buffer, mimetype };
     } catch (e) {
-        console.error("Gagal mengunduh media:", e); 
-        return null;
+        console.error("Gagal mengunduh media:", e); return null;
     }
 };
-// =================================================================================
-
 export const uploadImage = async (buffer, mimetype = 'image/jpeg') => { 
     const form = new FormData();
     form.append('file', buffer, { filename: 'image.jpg', contentType: mimetype }); 
@@ -240,11 +320,12 @@ export const pollPixnovaJob = async (statusUrl) => {
     throw new Error('Waktu pemrosesan habis (timeout).');
 };
 
+// ============================ EXPORT DEFAULT =================================
 export default {
-  delay, sleep, tryDo, chunk,
+  delay,
   sendMessage, sendText: sendMessage,
   sendImage, sendAudio, sendVideo, sendGif, sendDoc,
-  sendAlbum, sendPoll, sendContact, sendLocation,
+  sendSticker, sendStickerPack, sendAlbum, sendPoll, sendContact, sendLocation,
   sendCarousel, sendList, sendButtons, sendInteractiveMessage,
   react, editMessage, deleteMessage, forwardMessage,
   setPresence, typing,
