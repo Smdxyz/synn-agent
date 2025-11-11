@@ -1,11 +1,11 @@
-// connection.js (REVISED: SMART RECONNECT LOGIC)
+// connection.js (FINAL REVISION: PAIRING & RECONNECT FIX)
 
 import * as baileys from '@whiskeysockets/baileys';
 import pino from "pino";
 import { Boom } from "@hapi/boom";
 import readline from "readline";
 
-const { DisconnectReason } = baileys; // <-- PENTING: Ambil DisconnectReason
+const { DisconnectReason, fetchLatestBaileysVersion, makeWASocket, useMultiFileAuthState } = baileys;
 
 const rl = readline.createInterface({
   input: process.stdin,
@@ -13,42 +13,44 @@ const rl = readline.createInterface({
 });
 const question = (text) => new Promise((resolve) => rl.question(text, resolve));
 
-// Fungsi startSocket dipisah agar bisa dipanggil ulang untuk rekoneksi
 async function startSocket() {
-  const { state, saveCreds } = await baileys.useMultiFileAuthState("auth_info_baileys");
-  const { version } = await baileys.fetchLatestBaileysVersion();
+  const { state, saveCreds } = await useMultiFileAuthState("auth_info_baileys");
+  const { version } = await fetchLatestBaileysVersion();
+  console.log(`Menggunakan Baileys versi: ${version.join('.')}`);
 
-  const sock = baileys.makeWASocket({
+  const sock = makeWASocket({
     version,
     auth: state,
     printQRInTerminal: false,
-    logger: pino({ level: "silent" }), // Ubah ke 'info' jika butuh debug detail
+    // KEMBALIKAN LOGGER KE 'info' AGAR PAIRING BERFUNGSI
+    logger: pino({ level: "info" }), 
     keepAliveIntervalMs: 30000,
     connectTimeoutMs: 60_000,
-    // Tambahkan browser agar lebih stabil
     browser: ['My-Bot', 'Chrome', '1.0.0']
   });
 
-  // Logika pairing/scan QR
   if (!sock.authState.creds.registered) {
+    console.log("Sesi tidak ditemukan, memulai proses pairing...");
     await new Promise(r => setTimeout(r, 1500));
+    
     const phoneNumber = await question(
       "\nMasukkan nomor WhatsApp Anda (cth: 6281234567890): "
     );
+    
     try {
       const code = await sock.requestPairingCode(phoneNumber);
       console.log(`\n================================\n Kode Pairing Anda: ${code}\n================================\n`);
+      console.log("Silakan buka WhatsApp di HP Anda dan masukkan kode di atas pada notifikasi 'Tautkan Perangkat'.");
     } catch (error) {
       console.error("Gagal meminta kode pairing:", error);
-      // Restart jika gagal, mungkin ada masalah jaringan awal
       console.log("🔥 Gagal pairing, mencoba restart dalam 5 detik...");
       setTimeout(() => process.exit(1), 5000);
+      return null; // Hentikan eksekusi jika gagal
     }
   }
 
   sock.ev.on("creds.update", saveCreds);
 
-  // LOGIKA UTAMA ADA DI SINI
   sock.ev.on("connection.update", (update) => {
     const { connection, lastDisconnect } = update;
 
@@ -63,29 +65,14 @@ async function startSocket() {
       const reason = lastDisconnect.error?.message || 'Unknown Error';
       console.warn(`🔌 Koneksi terputus. Alasan: "${reason}" (Kode: ${statusCode})`);
 
-      // Logika Kapan Harus Restart vs Kapan Harus Coba Lagi
-      // DisconnectReason.loggedOut -> Ini fatal, session hilang, harus scan ulang.
       if (statusCode === DisconnectReason.loggedOut) {
-        console.error("❌ Perangkat Telah Keluar (Logout). Hapus folder 'auth_info_baileys' dan jalankan ulang untuk scan QR/pairing.");
-        // Keluar dengan kode 0, PM2 tidak akan restart.
-        process.exit(0); 
-      } 
-      // DisconnectReason.restartRequired -> Server WA menyuruh kita restart.
-      else if (statusCode === DisconnectReason.restartRequired) {
+        console.error("❌ Perangkat Telah Keluar (Logout). Hapus folder 'auth_info_baileys' dan jalankan ulang untuk pairing.");
+        process.exit(0);
+      } else if (statusCode === DisconnectReason.restartRequired) {
         console.log("🔥 Server meminta restart, memulai ulang koneksi...");
-        // Cukup panggil ulang fungsi koneksi, tidak perlu exit proses
-        startSocket();
-      }
-      // DisconnectReason.timedOut, connectionLost, dll -> Ini masalah jaringan biasa.
-      // Baileys akan otomatis mencoba menyambung ulang. Kita tidak perlu melakukan apa-apa.
-      // Cukup beri jeda dan biarkan Baileys bekerja. Jika gagal terus, PM2 akan restart.
-      else {
-        console.log("♻️ Mencoba menyambungkan kembali...");
-        // Di sini kita tidak melakukan `process.exit(1)`.
-        // Kita biarkan Baileys menangani rekoneksi secara internal.
-        // Jika Baileys gagal total setelah beberapa kali percobaan,
-        // error lain mungkin akan muncul dan baru kita tangani.
-        // Untuk sekarang, pendekatan paling stabil adalah membiarkannya.
+        connectToWhatsApp(); // Memanggil fungsi utama untuk rekoneksi penuh
+      } else {
+        console.log("♻️ Mencoba menyambungkan kembali... (Gangguan jaringan biasa, Baileys akan menangani ini)");
       }
     }
   });
@@ -93,8 +80,6 @@ async function startSocket() {
   return sock;
 }
 
-
-// Ubah fungsi connectToWhatsApp menjadi pembungkus untuk startSocket
 export async function connectToWhatsApp() {
     try {
         const sock = await startSocket();
@@ -102,6 +87,6 @@ export async function connectToWhatsApp() {
     } catch (error) {
         console.error("❌ Terjadi kesalahan fatal saat memulai bot:", error);
         console.log("🔥 Memulai restart penuh via PM2 dalam 10 detik...");
-        setTimeout(() => process.exit(1), 10000); // Restart jika ada error tak terduga
+        setTimeout(() => process.exit(1), 10000);
     }
 }
