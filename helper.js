@@ -7,12 +7,11 @@ import { downloadContentFromMessage } from '@whiskeysockets/baileys';
 import { config } from './config.js';
 import FormData from 'form-data';
 import axios from 'axios';
-// DITAMBAHKAN: Impor fungsi-fungsi baru dari baileys_helper dengan alias
-import { 
-    sendButtons as sendNativeButtons, 
-    sendList as sendNativeList,
-    sendCarousel as sendNativeCarousel
-} from 'baileys_helpers';
+
+// ================== PERBAIKAN DI SINI ==================
+// Impor seluruh modul sebagai satu objek dari NAMA PAKET YANG BENAR.
+import baileysHelpers from 'baileys_helpers';
+// =======================================================
 
 
 // ============================ UTILITAS DASAR =================================
@@ -76,51 +75,43 @@ export const sendLocation = async (sock, jid, latitude, longitude, options = {})
 
 // ============================ PENGIRIM PESAN INTERAKTIF (VERSI BARU) ============================
 
-// DIUBAH: Menggunakan sendNativeCarousel dari baileys_helper
 export const sendCarousel = async (sock, jid, items = [], options = {}) => {
   if (!Array.isArray(items) || items.length === 0) throw new Error('Items (kartu) tidak boleh kosong.');
   
-  // Strukturnya mungkin sedikit berbeda, sesuaikan dengan dokumentasi baileys_helper jika perlu.
-  // Asumsi formatnya mirip.
   const payload = {
     text: options.text || '',
     title: options.title || '',
     footer: options.footer || '',
-    cards: items, // 'items' di sini harusnya sudah dalam format yang benar
+    cards: items,
   };
-  return sendNativeCarousel(sock, jid, payload, options);
+  // Menggunakan objek yang benar: baileysHelpers
+  return baileysHelpers.sendCarousel(sock, jid, payload, options);
 };
 
-// DIUBAH: Menggunakan sendNativeList dari baileys_helper
 export const sendList = async (sock, jid, title, text, buttonText, sections = [], options = {}) => {
-  // baileys_helper mungkin menggunakan format yang sedikit berbeda,
-  // kita adaptasi ke format yang umum digunakan.
   const payload = {
       title: title,
       text: text,
       buttonText: buttonText,
       sections: sections
   };
-  return sendNativeList(sock, jid, payload, options);
+  // Menggunakan objek yang benar: baileysHelpers
+  return baileysHelpers.sendList(sock, jid, payload, options);
 };
 
-// DIUBAH: Menggunakan sendNativeButtons dari baileys_helper
 export const sendButtons = async (sock, jid, text, footer, buttons = [], options = {}) => {
-  // 1. Konversi format tombol lama ke format sederhana {id, text} yang diterima baileys_helper
   const convertedButtons = buttons.map(b => ({
       id: b.buttonId,
       text: b.buttonText.displayText
   }));
 
-  // 2. Siapkan payload untuk baileys_helper
   const payload = {
       text: text,
       footer: footer,
       buttons: convertedButtons
   };
-
-  // 3. Panggil fungsi dari pustaka baru
-  return sendNativeButtons(sock, jid, payload, options);
+  // Menggunakan objek yang benar: baileysHelpers
+  return baileysHelpers.sendButtons(sock, jid, payload, options);
 };
 
 // ============================ AKSI PESAN & STATUS ============================
