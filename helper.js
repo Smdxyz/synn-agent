@@ -7,7 +7,7 @@ import { downloadContentFromMessage } from '@whiskeysockets/baileys';
 import { config } from './config.js';
 import FormData from 'form-data';
 import axios from 'axios';
-import baileysHelpers from 'baileys_helpers'; // Ini tetap kita butuhkan untuk sendButtons
+import baileysHelpers from 'baileys_helpers';
 
 // ============================ UTILITAS DASAR =================================
 export const delay = (ms = 500) => new Promise((r) => setTimeout(r, ms));
@@ -68,45 +68,74 @@ export const sendLocation = async (sock, jid, latitude, longitude, options = {})
     return sock.sendMessage(jid, { location: { degreesLatitude: latitude, degreesLongitude: longitude } }, options);
 };
 
-// ============================ PENGIRIM PESAN INTERAKTIF (PERBAIKAN FINAL) ============================
+// ============================ PENGIRIM PESAN INTERAKTIF (VERSI FINAL & BENAR) ============================
 
-// DIKEMBALIKAN: Menggunakan sock.sendMessage asli karena Baileys v7 sudah mendukungnya
-export const sendCarousel = async (sock, jid, items = [], options = {}) => {
-  if (!Array.isArray(items) || items.length === 0) throw new Error('Items (kartu) tidak boleh kosong.');
-  const cards = items.map(item => ({
-      image: { url: item.url },
-      title: item.title || '',
-      body: item.body || '',
-      ...(Array.isArray(item.buttons) && { buttons: item.buttons }),
-  }));
+/**
+ * Mengirim pesan Carousel.
+ * FITUR NATIVE BAİLEYS v7+: Gunakan sock.sendMessage secara langsung.
+ * 'baileys_helpers' tidak diperlukan untuk ini.
+ * @param {object} sock Socket Baileys
+ * @param {string} jid JID Tujuan
+ * @param {Array<object>} cards Array objek kartu. Setiap objek harus memiliki { image: { url }, title, body, buttons: [...] }
+ * @param {object} options Opsi tambahan (text, footer, title untuk pesan utama)
+ */
+export const sendCarousel = async (sock, jid, cards = [], options = {}) => {
+  if (!Array.isArray(cards) || cards.length === 0) {
+    throw new Error('Payload `cards` tidak boleh kosong.');
+  }
   const messagePayload = {
       text: options.text || '',
-      title: options.title || '',
       footer: options.footer || '',
-      cards,
+      title: options.title || '',
+      cards: cards,
   };
   return sock.sendMessage(jid, messagePayload, options);
 };
 
-// DIKEMBALIKAN: Menggunakan sock.sendMessage asli karena Baileys v7 sudah mendukungnya
+/**
+ * Mengirim pesan List (Daftar Pilihan).
+ * FITUR NATIVE BAİLEYS v7+: Gunakan sock.sendMessage secara langsung.
+ * 'baileys_helpers' tidak diperlukan untuk ini.
+ * @param {object} sock Socket Baileys
+ * @param {string} jid JID Tujuan
+ * @param {string} title Judul pesan
+ * @param {string} text Teks body pesan
+ * @param {string} buttonText Teks pada tombol untuk membuka daftar
+ * @param {Array<object>} sections Array berisi section-section daftar
+ */
 export const sendList = async (sock, jid, title, text, buttonText, sections = [], options = {}) => {
-  const listMessage = { title, text, buttonText, sections };
+  const listMessage = {
+    text: text,
+    footer: options.footer || '',
+    title: title,
+    buttonText: buttonText,
+    sections: sections,
+  };
   return sock.sendMessage(jid, listMessage, options);
 };
 
-// TETAP: Menggunakan baileysHelpers karena ini adalah fungsi utamanya
+/**
+ * Mengirim pesan dengan Tombol Interaktif (Quick Reply, CTA).
+ * WAJIB MENGGUNAKAN 'baileys_helpers' untuk injeksi node <biz> dan <bot> secara otomatis.
+ * Ini memastikan tombol bisa tampil di chat pribadi dan grup.
+ * @param {object} sock Socket Baileys
+ * @param {string} jid JID Tujuan
+ * @param {string} text Teks body pesan
+ * @param {string} footer Teks footer pesan
+ * @param {Array<object>} buttons Array objek tombol. Format sederhana: { id: 'unique-id', text: 'Display Text' } atau format native flow.
+ */
 export const sendButtons = async (sock, jid, text, footer, buttons = [], options = {}) => {
-  const convertedButtons = buttons.map(b => ({
-      id: b.buttonId,
-      text: b.buttonText.displayText
-  }));
   const payload = {
-      text: text,
-      footer: footer,
-      buttons: convertedButtons
+    text: text,
+    footer: footer,
+    buttons: buttons, // Langsung gunakan array tombol, helper akan mengkonversinya
   };
   return baileysHelpers.sendButtons(sock, jid, payload, options);
 };
+
+// Ekspor juga fungsi canggih dari helper jika diperlukan untuk campuran tombol atau jenis lanjutan
+export const sendInteractiveMessage = baileysHelpers.sendInteractiveMessage;
+
 
 // ============================ AKSI PESAN & STATUS ============================
 export const react = async (sock, jid, key, emoji = '✅') => {
@@ -205,10 +234,10 @@ export const pollPixnovaJob = async (statusUrl) => {
 // ============================ EXPORT DEFAULT =================================
 export default {
   delay, sleep, tryDo, chunk,
-  sendMessage, sendText: sendMessage,
+  sendMessage, sendText,
   sendImage, sendAudio, sendVideo, sendGif, sendDoc,
   sendAlbum, sendPoll, sendContact, sendLocation,
-  sendCarousel, sendList, sendButtons,
+  sendCarousel, sendList, sendButtons, sendInteractiveMessage,
   react, editMessage, deleteMessage, forwardMessage,
   setPresence, typing,
   fetchAsBufferWithMime, downloadMedia, uploadImage, pollPixnovaJob,
