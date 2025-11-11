@@ -1,4 +1,4 @@
-// helper.js — FINAL DEFINITIVE VERSION (WITH ALL FIXES)
+// helper.js — FINAL VERSION (SUPER SMART downloadMedia)
 
 import got from 'got';
 import { 
@@ -14,15 +14,12 @@ import FormData from 'form-data';
 import axios from 'axios';
 import baileysHelpers from 'baileys_helpers';
 
-// ============================ UTILITAS DASAR =================================
+// ... (SEMUA KODE DARI UTILITAS DASAR SAMPAI SEBELUM downloadMedia TETAP SAMA) ...
 export const delay = (ms = 500) => new Promise((r) => setTimeout(r, ms));
 export const sleep = delay;
 export const tryDo = async (fn, fallback = null) => { try { return await fn(); } catch { return fallback; } };
 export const chunk = (arr, size = 10) => { const out = []; for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size)); return out; };
 const streamToBuffer = async (stream) => { const chunks = []; for await (const chunk of stream) chunks.push(chunk); return Buffer.concat(chunks); };
-
-
-// ============================ PENGIRIM PESAN DASAR ============================
 export const sendMessage = async (sock, jid, text, options = {}) => sock.sendMessage(jid, { text }, options);
 export { sendMessage as sendText };
 export const sendImage = async (sock, jid, urlOrBuffer, caption = '', viewOnce = false, options = {}) => {
@@ -45,40 +42,23 @@ export const sendDoc = async (sock, jid, urlOrBuffer, fileName = 'file', mimetyp
   const document = Buffer.isBuffer(urlOrBuffer) ? urlOrBuffer : { url: urlOrBuffer };
   return sock.sendMessage(jid, { document, fileName, mimetype }, options);
 };
-
-// ============================ PENGIRIM PESAN TIPE KHUSUS ============================
-
-/**
- * Mengirim album media (gambar/video) dengan meniru logika itsukichan.
- * @param {object} sock Socket Baileys
- * @param {string} jid JID Tujuan
- * @param {Array<object>} albumPayload Array media. Format: [{ image: { url }, caption }, { video: { url }, caption }]
- * @param {object} options Opsi tambahan
- */
 export const sendAlbum = async (sock, jid, albumPayload = [], options = {}) => {
     if (!Array.isArray(albumPayload) || albumPayload.length === 0) {
         throw new Error("Payload untuk album tidak boleh kosong.");
     }
-
     const userJid = sock.user.id;
     const messageId = generateMessageID();
-
     const imageCount = albumPayload.filter(item => 'image' in item).length;
     const videoCount = albumPayload.filter(item => 'video' in item).length;
     const containerMessageContent = {
         albumMessage: { expectedImageCount: imageCount, expectedVideoCount: videoCount }
     };
     const containerMsg = generateWAMessageFromContent(jid, containerMessageContent, { userJid, messageId });
-
     await sock.relayMessage(jid, containerMsg.message, { messageId: containerMsg.key.id });
-
     const sentMessages = [containerMsg];
-
     for (const media of albumPayload) {
         await delay(100);
-
         const mediaMsg = await generateWAMessage(jid, media, { ...options, userJid, upload: sock.waUploadToServer });
-
         mediaMsg.message.messageContextInfo = {
             messageSecret: randomBytes(32),
             messageAssociation: {
@@ -86,14 +66,11 @@ export const sendAlbum = async (sock, jid, albumPayload = [], options = {}) => {
                 parentMessageKey: containerMsg.key
             }
         };
-
         await sock.relayMessage(jid, mediaMsg.message, { messageId: mediaMsg.key.id });
         sentMessages.push(mediaMsg);
     }
-
     return sentMessages;
 };
-
 export const sendPoll = async (sock, jid, name, values, options = {}) => {
   return sock.sendMessage(jid, { poll: { name, values, selectableCount: 1 } }, options);
 };
@@ -104,40 +81,27 @@ export const sendContact = async (sock, jid, fullName, org, waid, options = {}) 
 export const sendLocation = async (sock, jid, latitude, longitude, options = {}) => {
     return sock.sendMessage(jid, { location: { degreesLatitude: latitude, degreesLongitude: longitude } }, options);
 };
-
-// ============================ PENGIRIM PESAN INTERAKTIF ============================
-
-/**
- * Mengirim pesan Carousel dengan meniru itsukichan, SEKARANG LEBIH TANGGUH.
- * Jika satu media gagal diproses, ia akan dilewati dan tidak membuat seluruh perintah gagal.
- */
 export const sendCarousel = async (sock, jid, cards = [], options = {}) => {
   if (!Array.isArray(cards) || cards.length === 0) {
     throw new Error('Payload `cards` tidak boleh kosong.');
   }
-
   const userJid = sock.user.id;
-
   const cardProcessingPromises = cards.map(async (card) => {
     try {
       const { image, video, body, footer, buttons } = card;
       let preparedMedia = image ? { image } : video ? { video } : null;
       if (!preparedMedia) throw new Error('Setiap kartu harus memiliki `image` atau `video`.');
-      
       const mediaContent = await generateWAMessageContent(
         preparedMedia,
         { upload: sock.waUploadToServer, logger: sock.logger, options: sock.options, userJid }
       );
-
       if (!mediaContent.imageMessage && !mediaContent.videoMessage) {
           throw new Error('Gagal memproses media, hasilnya kosong.');
       }
-
       const nativeFlowButtons = (buttons || []).map(btn => ({
           name: 'quick_reply',
           buttonParamsJson: JSON.stringify({ display_text: btn.displayText, id: btn.id || btn.buttonId })
       }));
-
       return {
         header: {
           ...(mediaContent.imageMessage && { imageMessage: mediaContent.imageMessage }),
@@ -153,20 +117,16 @@ export const sendCarousel = async (sock, jid, cards = [], options = {}) => {
         return null;
     }
   });
-
   const processedCards = (await Promise.all(cardProcessingPromises)).filter(Boolean);
-
   if (processedCards.length === 0) {
       throw new Error('Semua kartu gagal diproses. Tidak ada yang bisa ditampilkan.');
   }
-
   const interactiveMessage = {
     body: { text: options.text || '' },
     footer: { text: options.footer || '' },
     header: { title: options.title || '', hasMediaAttachment: false },
     carouselMessage: { cards: processedCards, messageVersion: 1 }
   };
-
   const finalMessage = {
     viewOnceMessageV2Extension: {
       message: {
@@ -175,13 +135,10 @@ export const sendCarousel = async (sock, jid, cards = [], options = {}) => {
       }
     }
   };
-
   const fullMsg = generateWAMessageFromContent(jid, finalMessage, { ...options, userJid, messageId: options.messageId || generateMessageID() });
   await sock.relayMessage(jid, fullMsg.message, { messageId: fullMsg.key.id });
-
   return fullMsg;
 };
-
 export const sendList = async (sock, jid, title, text, buttonText, sections = [], options = {}) => {
   const listMessage = { text, footer: options.footer || '', title, buttonText, sections };
   return sock.sendMessage(jid, listMessage, options);
@@ -191,9 +148,6 @@ export const sendButtons = async (sock, jid, text, footer, buttons = [], options
   return baileysHelpers.sendButtons(sock, jid, payload, options);
 };
 export const sendInteractiveMessage = baileysHelpers.sendInteractiveMessage;
-
-
-// ============================ AKSI PESAN & STATUS ============================
 export const react = async (sock, jid, key, emoji = '✅') => {
   try { return await sock.sendMessage(jid, { react: { text: emoji, key } }); } catch { }
 };
@@ -221,22 +175,51 @@ export const fetchAsBufferWithMime = async (url) => {
     throw new Error(`Gagal mengunduh konten. Server tujuan menolak dengan status: ${status}`);
   }
 };
+
+// ============================ INI BAGIAN YANG DIPERBAIKI ============================
+/**
+ * Mengunduh media dari pesan, sekarang mendukung balasan ke Carousel.
+ */
 export const downloadMedia = async (message) => {
     let mediaMessage = message.message?.imageMessage || message.message?.videoMessage || message.message?.stickerMessage;
+    
+    // Jika tidak ada media di pesan utama, cek pesan yang di-reply (quoted)
     if (!mediaMessage) {
         const quoted = message.message?.extendedTextMessage?.contextInfo?.quotedMessage;
-        if (quoted) mediaMessage = quoted.imageMessage || quoted.videoMessage || stickerMessage;
+        if (quoted) {
+            // Cek media simpel dulu
+            mediaMessage = quoted.imageMessage || quoted.videoMessage || quoted.stickerMessage;
+
+            // Jika masih kosong, cek apakah ini balasan ke pesan interaktif (seperti Carousel)
+            if (!mediaMessage) {
+                const interactiveMsg = quoted.viewOnceMessageV2Extension?.message?.interactiveMessage || quoted.interactiveMessage;
+                
+                if (interactiveMsg) {
+                    // Cek untuk Carousel
+                    const carouselCards = interactiveMsg.carouselMessage?.cards;
+                    if (carouselCards && carouselCards.length > 0) {
+                        // Ambil media dari KARTU PERTAMA sebagai default
+                        mediaMessage = carouselCards[0].header?.imageMessage || carouselCards[0].header?.videoMessage;
+                    }
+                }
+            }
+        }
     }
+
     if (!mediaMessage) return null;
+
     try {
         const mimetype = mediaMessage.mimetype;
         const stream = await downloadContentFromMessage(mediaMessage, mediaMessage.videoMessage ? 'video' : (mediaMessage.stickerMessage ? 'sticker' : 'image'));
         const buffer = await streamToBuffer(stream);
         return { buffer, mimetype };
     } catch (e) {
-        console.error("Gagal mengunduh media:", e); return null;
+        console.error("Gagal mengunduh media:", e); 
+        return null;
     }
 };
+// =================================================================================
+
 export const uploadImage = async (buffer, mimetype = 'image/jpeg') => { 
     const form = new FormData();
     form.append('file', buffer, { filename: 'image.jpg', contentType: mimetype }); 
