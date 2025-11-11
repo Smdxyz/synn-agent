@@ -1,13 +1,18 @@
-// helper.js — FINAL VERSION BASED ON ITSUKICHAN'S LOGIC
+// helper.js — FINAL DEFINITIVE VERSION
 
 import got from 'got';
-import { downloadContentFromMessage, generateWAMessageFromContent } from '@whiskeysockets/baileys'; // IMPORT generateWAMessageFromContent
+import { 
+    downloadContentFromMessage, 
+    generateWAMessageFromContent, 
+    generateMessageID // <-- TAMBAHKAN IMPORT INI
+} from '@whiskeysockets/baileys';
 import { config } from './config.js';
 import FormData from 'form-data';
 import axios from 'axios';
 import baileysHelpers from 'baileys_helpers';
 
 // ============================ UTILITAS DASAR =================================
+// ... (TIDAK ADA PERUBAHAN DI SINI)
 export const delay = (ms = 500) => new Promise((r) => setTimeout(r, ms));
 export const sleep = delay;
 export const tryDo = async (fn, fallback = null) => { try { return await fn(); } catch { return fallback; } };
@@ -16,9 +21,10 @@ const streamToBuffer = async (stream) => { const chunks = []; for await (const c
 
 
 // ============================ PENGIRIM PESAN DASAR ============================
-// ... (SEMUA FUNGSI DARI sendMessage HINGGA sendLocation TETAP SAMA, TIDAK PERLU DIUBAH)
+// ... (TIDAK ADA PERUBAHAN DI SINI)
 export const sendMessage = async (sock, jid, text, options = {}) => sock.sendMessage(jid, { text }, options);
 export { sendMessage as sendText };
+// ... (dan fungsi sendImage, sendAudio, dll lainnya tetap sama)
 export const sendImage = async (sock, jid, urlOrBuffer, caption = '', viewOnce = false, options = {}) => {
   const image = Buffer.isBuffer(urlOrBuffer) ? urlOrBuffer : { url: urlOrBuffer };
   return sock.sendMessage(jid, { image, caption, viewOnce }, options);
@@ -55,11 +61,10 @@ export const sendLocation = async (sock, jid, latitude, longitude, options = {})
 };
 
 
-// ============================ PENGIRIM PESAN INTERAKTIF (DITULIS ULANG BERDASARKAN LOGIKA ITSUKICHAN) ============================
+// ============================ PENGIRIM PESAN INTERAKTIF (PERBAIKAN FINAL DENGAN relayMessage) ============================
 
 /**
- * Mengirim pesan Carousel dengan meniru 100% logika itsukichan.
- * Mengatasi "Invalid media type" dengan memproses media sebelum mengirim.
+ * Mengirim pesan Carousel dengan meniru itsukichan: Membangun payload manual & mengirim via relayMessage.
  * @param {object} sock Socket Baileys
  * @param {string} jid JID Tujuan
  * @param {Array<object>} cards Kartu. Format: { image: <Buffer|{url}>, video: <Buffer|{url}>, body, footer, buttons: [...] }
@@ -70,86 +75,65 @@ export const sendCarousel = async (sock, jid, cards = [], options = {}) => {
     throw new Error('Payload `cards` tidak boleh kosong.');
   }
 
-  // Logika dari itsukichan: proses setiap kartu secara asinkron
   const processedCards = await Promise.all(cards.map(async (card) => {
     const { image, video, body, footer, buttons } = card;
-    let mediaMessage;
-    let preparedMedia;
-
-    // Siapkan media (gambar atau video)
-    if (image) {
-      preparedMedia = { image };
-    } else if (video) {
-      preparedMedia = { video };
-    } else {
-      throw new Error('Setiap kartu harus memiliki `image` atau `video`.');
-    }
-
-    // Ini adalah langkah KUNCI dari itsukichan: proses media menggunakan fungsi internal Baileys
-    mediaMessage = await generateWAMessageFromContent(
+    let preparedMedia = image ? { image } : video ? { video } : null;
+    if (!preparedMedia) throw new Error('Setiap kartu harus memiliki `image` atau `video`.');
+    
+    // Proses media menggunakan fungsi internal Baileys untuk mendapatkan struktur message yang benar
+    const mediaMessage = await generateWAMessageFromContent(
       jid,
       preparedMedia,
-      { upload: sock.waUploadToServer } // Ini akan mengunduh, mengenkripsi, dan mengunggah media
+      { upload: sock.waUploadToServer, ...options }
     );
     
-    // Siapkan tombol untuk nativeFlowMessage
     const nativeFlowButtons = (buttons || []).map(btn => ({
-        name: 'quick_reply', // Asumsikan semua tombol adalah quick_reply untuk carousel
+        name: 'quick_reply',
         buttonParamsJson: JSON.stringify({
             display_text: btn.displayText,
             id: btn.id || btn.buttonId
         })
     }));
 
-    // Bentuk struktur satu kartu yang sudah diproses
-    const singleCard = {
+    return {
       header: {
-        // Ambil hasil pemrosesan media (imageMessage atau videoMessage)
         ...(mediaMessage.message.imageMessage && { imageMessage: mediaMessage.message.imageMessage }),
         ...(mediaMessage.message.videoMessage && { videoMessage: mediaMessage.message.videoMessage }),
         hasMediaAttachment: true,
       },
       body: { text: body || '' },
       footer: { text: footer || '' },
-      nativeFlowMessage: {
-        buttons: nativeFlowButtons,
-        messageParamsJson: ''
-      }
+      nativeFlowMessage: { buttons: nativeFlowButtons, messageParamsJson: '' }
     };
-    return singleCard;
   }));
 
-  // Susun pesan interaktif utama
   const interactiveMessage = {
     body: { text: options.text || '' },
     footer: { text: options.footer || '' },
-    header: {
-      title: options.title || '',
-      hasMediaAttachment: false
-    },
-    carouselMessage: {
-      cards: processedCards,
-      messageVersion: 1
-    }
+    header: { title: options.title || '', hasMediaAttachment: false },
+    carouselMessage: { cards: processedCards, messageVersion: 1 }
   };
 
-  // Bungkus dalam viewOnceMessage (sesuai praktik itsukichan/Baileys untuk pesan kompleks)
   const finalMessage = {
     viewOnceMessage: {
       message: {
-        messageContextInfo: {
-          deviceListMetadata: {},
-          deviceListMetadataVersion: 2
-        },
+        messageContextInfo: { deviceListMetadata: {}, deviceListMetadataVersion: 2 },
         interactiveMessage: interactiveMessage
       }
     }
   };
   
-  return sock.sendMessage(jid, finalMessage, options);
+  // INI ADALAH PERUBAHAN KUNCI: Gunakan relayMessage untuk mengirim payload yang sudah jadi
+  const messageId = options.messageId || generateMessageID();
+  await sock.relayMessage(jid, finalMessage, { messageId });
+
+  // Kembalikan objek yang mirip dengan hasil sendMessage untuk konsistensi
+  const fullMsg = await generateWAMessageFromContent(jid, finalMessage, { ...options, userJid: sock.user.id, messageId });
+  return fullMsg;
 };
 
-// --- FUNGSI INTERAKTIF LAINNYA (TETAP SAMA SEPERTI SEBELUMNYA) ---
+
+// --- FUNGSI INTERAKTIF LAINNYA (TIDAK ADA PERUBAHAN) ---
 export const sendList = async (sock, jid, title, text, buttonText, sections = [], options = {}) => {
   const listMessage = { text, footer: options.footer || '', title, buttonText, sections };
   return sock.sendMessage(jid, listMessage, options);
@@ -162,7 +146,7 @@ export const sendInteractiveMessage = baileysHelpers.sendInteractiveMessage;
 
 
 // ============================ AKSI PESAN & STATUS ============================
-// ... (SEMUA FUNGSI DARI react HINGGA pollPixnovaJob TETAP SAMA)
+// ... (TIDAK ADA PERUBAHAN DARI SINI SAMPAI AKHIR)
 export const react = async (sock, jid, key, emoji = '✅') => {
   try { return await sock.sendMessage(jid, { react: { text: emoji, key } }); } catch { }
 };
