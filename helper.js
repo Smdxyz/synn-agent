@@ -1,23 +1,28 @@
-// helper.js — FINAL DEFINITIVE VERSION (REPLICATING ITSUKICHAN'S LOGIC)
+// helper.js — FINAL DEFINITIVE VERSION (WITH ALL FIXES)
 
 import got from 'got';
 import { 
     downloadContentFromMessage, 
-    generateWAMessageContent,  // Kita butuh ini, bukan generateWAMessage
-    generateWAMessageFromContent, // Dan ini juga, tapi untuk tujuan berbeda
+    generateWAMessage,
+    generateWAMessageContent,
+    generateWAMessageFromContent,
     generateMessageID 
 } from '@whiskeysockets/baileys';
+import { randomBytes } from 'crypto';
 import { config } from './config.js';
 import FormData from 'form-data';
 import axios from 'axios';
 import baileysHelpers from 'baileys_helpers';
 
-// ... (SEMUA KODE DARI UTILITAS DASAR SAMPAI PESAN KHUSUS TETAP SAMA) ...
+// ============================ UTILITAS DASAR =================================
 export const delay = (ms = 500) => new Promise((r) => setTimeout(r, ms));
 export const sleep = delay;
 export const tryDo = async (fn, fallback = null) => { try { return await fn(); } catch { return fallback; } };
 export const chunk = (arr, size = 10) => { const out = []; for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size)); return out; };
 const streamToBuffer = async (stream) => { const chunks = []; for await (const chunk of stream) chunks.push(chunk); return Buffer.concat(chunks); };
+
+
+// ============================ PENGIRIM PESAN DASAR ============================
 export const sendMessage = async (sock, jid, text, options = {}) => sock.sendMessage(jid, { text }, options);
 export { sendMessage as sendText };
 export const sendImage = async (sock, jid, urlOrBuffer, caption = '', viewOnce = false, options = {}) => {
@@ -40,10 +45,55 @@ export const sendDoc = async (sock, jid, urlOrBuffer, fileName = 'file', mimetyp
   const document = Buffer.isBuffer(urlOrBuffer) ? urlOrBuffer : { url: urlOrBuffer };
   return sock.sendMessage(jid, { document, fileName, mimetype }, options);
 };
+
+// ============================ PENGIRIM PESAN TIPE KHUSUS ============================
+
+/**
+ * Mengirim album media (gambar/video) dengan meniru logika itsukichan.
+ * @param {object} sock Socket Baileys
+ * @param {string} jid JID Tujuan
+ * @param {Array<object>} albumPayload Array media. Format: [{ image: { url }, caption }, { video: { url }, caption }]
+ * @param {object} options Opsi tambahan
+ */
 export const sendAlbum = async (sock, jid, albumPayload = [], options = {}) => {
-    if (!Array.isArray(albumPayload) || albumPayload.length === 0) throw new Error("Payload untuk album tidak boleh kosong.");
-    return sock.sendMessage(jid, { album: albumPayload }, options);
+    if (!Array.isArray(albumPayload) || albumPayload.length === 0) {
+        throw new Error("Payload untuk album tidak boleh kosong.");
+    }
+
+    const userJid = sock.user.id;
+    const messageId = generateMessageID();
+
+    const imageCount = albumPayload.filter(item => 'image' in item).length;
+    const videoCount = albumPayload.filter(item => 'video' in item).length;
+    const containerMessageContent = {
+        albumMessage: { expectedImageCount: imageCount, expectedVideoCount: videoCount }
+    };
+    const containerMsg = generateWAMessageFromContent(jid, containerMessageContent, { userJid, messageId });
+
+    await sock.relayMessage(jid, containerMsg.message, { messageId: containerMsg.key.id });
+
+    const sentMessages = [containerMsg];
+
+    for (const media of albumPayload) {
+        await delay(100);
+
+        const mediaMsg = await generateWAMessage(jid, media, { ...options, userJid, upload: sock.waUploadToServer });
+
+        mediaMsg.message.messageContextInfo = {
+            messageSecret: randomBytes(32),
+            messageAssociation: {
+                associationType: 1, // WAProto.MessageAssociation.Type.ALBUM
+                parentMessageKey: containerMsg.key
+            }
+        };
+
+        await sock.relayMessage(jid, mediaMsg.message, { messageId: mediaMsg.key.id });
+        sentMessages.push(mediaMsg);
+    }
+
+    return sentMessages;
 };
+
 export const sendPoll = async (sock, jid, name, values, options = {}) => {
   return sock.sendMessage(jid, { poll: { name, values, selectableCount: 1 } }, options);
 };
@@ -55,14 +105,11 @@ export const sendLocation = async (sock, jid, latitude, longitude, options = {})
     return sock.sendMessage(jid, { location: { degreesLatitude: latitude, degreesLongitude: longitude } }, options);
 };
 
-// ============================ PENGIRIM PESAN INTERAKTIF (MENIRU ITSUKICHAN DENGAN PRESISI) ============================
+// ============================ PENGIRIM PESAN INTERAKTIF ============================
 
 /**
- * Mengirim pesan Carousel dengan meniru itsukichan: Memproses media per kartu, merakit, dan mengirim.
- * @param {object} sock Socket Baileys
- * @param {string} jid JID Tujuan
- * @param {Array<object>} cards Kartu. Format: { image: <Buffer|{url}>, video: <Buffer|{url}>, body, footer, buttons: [...] }
- * @param {object} options Opsi tambahan
+ * Mengirim pesan Carousel dengan meniru itsukichan, SEKARANG LEBIH TANGGUH.
+ * Jika satu media gagal diproses, ia akan dilewati dan tidak membuat seluruh perintah gagal.
  */
 export const sendCarousel = async (sock, jid, cards = [], options = {}) => {
   if (!Array.isArray(cards) || cards.length === 0) {
@@ -71,46 +118,48 @@ export const sendCarousel = async (sock, jid, cards = [], options = {}) => {
 
   const userJid = sock.user.id;
 
-  // Langkah 1: Proses setiap kartu untuk menghasilkan media yang valid (meniru `prepareWAMessageMedia`)
-  const processedCards = await Promise.all(cards.map(async (card) => {
-    const { image, video, body, footer, buttons } = card;
-    let preparedMedia = image ? { image } : video ? { video } : null;
-    if (!preparedMedia) throw new Error('Setiap kartu harus memiliki `image` atau `video`.');
-    
-    // Ini adalah replikasi dari `prepareWAMessageMedia` untuk satu media.
-    // Kita membuat konten pesan media, yang akan menangani upload & enkripsi.
-    const mediaContent = await generateWAMessageContent(
-      preparedMedia,
-      {
-        upload: sock.waUploadToServer,
-        logger: sock.logger,
-        options: sock.options,
-        userJid
+  const cardProcessingPromises = cards.map(async (card) => {
+    try {
+      const { image, video, body, footer, buttons } = card;
+      let preparedMedia = image ? { image } : video ? { video } : null;
+      if (!preparedMedia) throw new Error('Setiap kartu harus memiliki `image` atau `video`.');
+      
+      const mediaContent = await generateWAMessageContent(
+        preparedMedia,
+        { upload: sock.waUploadToServer, logger: sock.logger, options: sock.options, userJid }
+      );
+
+      if (!mediaContent.imageMessage && !mediaContent.videoMessage) {
+          throw new Error('Gagal memproses media, hasilnya kosong.');
       }
-    );
 
-    const nativeFlowButtons = (buttons || []).map(btn => ({
-        name: 'quick_reply',
-        buttonParamsJson: JSON.stringify({
-            display_text: btn.displayText,
-            id: btn.id || btn.buttonId
-        })
-    }));
+      const nativeFlowButtons = (buttons || []).map(btn => ({
+          name: 'quick_reply',
+          buttonParamsJson: JSON.stringify({ display_text: btn.displayText, id: btn.id || btn.buttonId })
+      }));
 
-    return {
-      header: {
-        // Suntikkan hasil `imageMessage` atau `videoMessage` yang sudah valid
-        ...(mediaContent.imageMessage && { imageMessage: mediaContent.imageMessage }),
-        ...(mediaContent.videoMessage && { videoMessage: mediaContent.videoMessage }),
-        hasMediaAttachment: true,
-      },
-      body: { text: body || '' },
-      footer: { text: footer || '' },
-      nativeFlowMessage: { buttons: nativeFlowButtons, messageParamsJson: '' }
-    };
-  }));
+      return {
+        header: {
+          ...(mediaContent.imageMessage && { imageMessage: mediaContent.imageMessage }),
+          ...(mediaContent.videoMessage && { videoMessage: mediaContent.videoMessage }),
+          hasMediaAttachment: true,
+        },
+        body: { text: body || '' },
+        footer: { text: footer || '' },
+        nativeFlowMessage: { buttons: nativeFlowButtons, messageParamsJson: '' }
+      };
+    } catch (error) {
+        console.error(`[sendCarousel] Gagal memproses satu kartu: ${error.message}`);
+        return null;
+    }
+  });
 
-  // Langkah 2: Rakit payload `interactiveMessage`
+  const processedCards = (await Promise.all(cardProcessingPromises)).filter(Boolean);
+
+  if (processedCards.length === 0) {
+      throw new Error('Semua kartu gagal diproses. Tidak ada yang bisa ditampilkan.');
+  }
+
   const interactiveMessage = {
     body: { text: options.text || '' },
     footer: { text: options.footer || '' },
@@ -118,7 +167,6 @@ export const sendCarousel = async (sock, jid, cards = [], options = {}) => {
     carouselMessage: { cards: processedCards, messageVersion: 1 }
   };
 
-  // Langkah 3: Buat pesan akhir dengan wrapper yang benar (`viewOnceMessageV2Extension`)
   const finalMessage = {
     viewOnceMessageV2Extension: {
       message: {
@@ -128,21 +176,12 @@ export const sendCarousel = async (sock, jid, cards = [], options = {}) => {
     }
   };
 
-  // Langkah 4: Buat `WebMessageInfo` lengkap untuk di-relay
-  const fullMsg = generateWAMessageFromContent(jid, finalMessage, {
-    ...options,
-    userJid,
-    messageId: options.messageId || generateMessageID()
-  });
-
-  // Langkah 5: Kirim pesan yang sudah jadi menggunakan `relayMessage`
+  const fullMsg = generateWAMessageFromContent(jid, finalMessage, { ...options, userJid, messageId: options.messageId || generateMessageID() });
   await sock.relayMessage(jid, fullMsg.message, { messageId: fullMsg.key.id });
 
   return fullMsg;
 };
 
-
-// --- FUNGSI INTERAKTIF LAINNYA (TIDAK ADA PERUBAHAN) ---
 export const sendList = async (sock, jid, title, text, buttonText, sections = [], options = {}) => {
   const listMessage = { text, footer: options.footer || '', title, buttonText, sections };
   return sock.sendMessage(jid, listMessage, options);
@@ -154,7 +193,7 @@ export const sendButtons = async (sock, jid, text, footer, buttons = [], options
 export const sendInteractiveMessage = baileysHelpers.sendInteractiveMessage;
 
 
-// ... (SISA KODE DARI AKSI PESAN HINGGA AKHIR TETAP SAMA) ...
+// ============================ AKSI PESAN & STATUS ============================
 export const react = async (sock, jid, key, emoji = '✅') => {
   try { return await sock.sendMessage(jid, { react: { text: emoji, key } }); } catch { }
 };
