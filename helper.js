@@ -20,7 +20,7 @@ const streamToBuffer = async (stream) => { const chunks = []; for await (const c
 // ============================ PENGIRIM PESAN DASAR ============================
 export const sendMessage = async (sock, jid, text, options = {}) =>
   sock.sendMessage(jid, { text }, options);
-export { sendMessage as sendText }; // Ini adalah named export alias, tetap di sini
+export { sendMessage as sendText };
 
 export const sendImage = async (sock, jid, urlOrBuffer, caption = '', viewOnce = false, options = {}) => {
   const image = Buffer.isBuffer(urlOrBuffer) ? urlOrBuffer : { url: urlOrBuffer };
@@ -71,25 +71,75 @@ export const sendLocation = async (sock, jid, latitude, longitude, options = {})
 // ============================ PENGIRIM PESAN INTERAKTIF (VERSI FINAL & BENAR) ============================
 
 /**
- * Mengirim pesan Carousel.
- * FITUR NATIVE BAİLEYS v7+: Gunakan sock.sendMessage secara langsung.
- * 'baileys_helpers' tidak diperlukan untuk ini.
+ * Mengirim pesan Carousel dengan MEMBANGUN PAYLOAD MANUAL.
+ * Ini adalah cara yang benar karena Baileys tidak mendukung format { cards: [...] } secara langsung.
+ * Kita harus membuat objek `interactiveMessage` yang lengkap.
  * @param {object} sock Socket Baileys
  * @param {string} jid JID Tujuan
- * @param {Array<object>} cards Array objek kartu. Setiap objek harus memiliki { image: { url }, title, body, buttons: [...] }
+ * @param {Array<object>} cards Array objek kartu. Format: { image: { url }, title, body, footer, buttons: [{ buttonId, displayText }] }
  * @param {object} options Opsi tambahan (text, footer, title untuk pesan utama)
  */
 export const sendCarousel = async (sock, jid, cards = [], options = {}) => {
   if (!Array.isArray(cards) || cards.length === 0) {
     throw new Error('Payload `cards` tidak boleh kosong.');
   }
-  const messagePayload = {
-      text: options.text || '',
-      footer: options.footer || '',
+
+  const processedCards = cards.map(card => {
+    if (!card.image || !card.image.url) {
+      throw new Error('Setiap kartu dalam carousel harus memiliki `image: { url: "..." }`.');
+    }
+    
+    const hydratedButtons = (card.buttons || []).map(btn => ({
+      hydratedTemplateButton: {
+        quickReplyButton: {
+          displayText: btn.displayText || btn.buttonText?.displayText,
+          id: btn.id || btn.buttonId,
+        }
+      }
+    }));
+
+    return {
+      header: {
+        // title: card.title || '', // Title di dalam header kartu tidak didukung, gunakan body/footer
+        imageMessage: { url: card.image.url },
+        hasMediaAttachment: true
+      },
+      body: { text: card.body || '' },
+      footer: { text: card.footer || '' },
+      nativeFlowMessage: {
+        buttons: hydratedButtons,
+        messageParamsJson: ''
+      }
+    };
+  });
+
+  const interactiveMessage = {
+    body: { text: options.text || '' },
+    footer: { text: options.footer || '' },
+    header: {
       title: options.title || '',
-      cards: cards,
+      subtitle: options.subtitle || '',
+      hasMediaAttachment: false
+    },
+    carouselMessage: {
+      cards: processedCards,
+      messageVersion: 1
+    }
   };
-  return sock.sendMessage(jid, messagePayload, options);
+
+  const finalMessage = {
+    viewOnceMessage: {
+      message: {
+        messageContextInfo: {
+          deviceListMetadata: {},
+          deviceListMetadataVersion: 2
+        },
+        interactiveMessage: interactiveMessage
+      }
+    }
+  };
+  
+  return sock.sendMessage(jid, finalMessage, options);
 };
 
 /**
@@ -235,7 +285,7 @@ export const pollPixnovaJob = async (statusUrl) => {
 export default {
   delay, sleep, tryDo, chunk,
   sendMessage,
-  sendText: sendMessage, // Ini cara yang benar untuk membuat alias di default export
+  sendText: sendMessage,
   sendImage, sendAudio, sendVideo, sendGif, sendDoc,
   sendAlbum, sendPoll, sendContact, sendLocation,
   sendCarousel, sendList, sendButtons, sendInteractiveMessage,
