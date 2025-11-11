@@ -1,10 +1,11 @@
-// modules/fun/facerating.js (FIXED - Handles user image URL for canvas)
+// modules/fun/facerating.js (FIXED - Font Path Resolution)
 
 import axios from 'axios';
 import FormData from 'form-data';
 import H from '../../helper.js';
 import { config } from '../../config.js';
 import { createCanvas, loadImage, registerFont } from 'canvas';
+import { join } from 'path'; // <-- TAMBAHKAN IMPORT INI
 
 // --- METADATA COMMAND ---
 export const category = 'Fun';
@@ -13,13 +14,16 @@ export const usage = `${config.BOT_PREFIX}rate`;
 export const aliases = ['facerate', 'rateface', 'howhot'];
 
 // --- FUNGSI PEMBUAT GAMBAR DENGAN CANVAS ---
-async function createRatingImage(userImageUrl, data) { // <-- Menerima URL gambar pengguna
+async function createRatingImage(userImageUrl, data) {
+    // --- PERBAIKAN DI SINI: Gunakan path absolut ---
     try {
-        registerFont('../../assets/fonts/Poppins-Bold.ttf', { family: 'Poppins', weight: 'bold' });
-        registerFont('../../assets/fonts/Poppins-Regular.ttf', { family: 'Poppins', weight: 'normal' });
+        const assetsPath = join(process.cwd(), 'assets', 'fonts');
+        registerFont(join(assetsPath, 'Poppins-Bold.ttf'), { family: 'Poppins', weight: 'bold' });
+        registerFont(join(assetsPath, 'Poppins-Regular.ttf'), { family: 'Poppins', weight: 'normal' });
     } catch (e) {
-        console.warn("[FaceRating] Font kustom tidak ditemukan, menggunakan font default.");
+        console.warn("[FaceRating] Font kustom tidak ditemukan, menggunakan font default. Error:", e.message);
     }
+    // ---------------------------------------------
     
     const fontFamily = 'Poppins, sans-serif';
     const width = 800;
@@ -27,6 +31,7 @@ async function createRatingImage(userImageUrl, data) { // <-- Menerima URL gamba
     const canvas = createCanvas(width, height);
     const ctx = canvas.getContext('2d');
 
+    // ... sisa kode canvas tidak ada yang berubah ...
     ctx.fillStyle = '#1A1A2E';
     ctx.fillRect(0, 0, width, height);
     
@@ -45,8 +50,6 @@ async function createRatingImage(userImageUrl, data) { // <-- Menerima URL gamba
     ctx.closePath();
     ctx.fill();
 
-    // --- Gambar Profil ---
-    // Di sinilah URL gambar pengguna digunakan
     try {
         const avatar = await loadImage(userImageUrl);
         const avatarX = 85;
@@ -67,7 +70,6 @@ async function createRatingImage(userImageUrl, data) { // <-- Menerima URL gamba
         ctx.fillText('Gagal memuat gambar', 85 + 250 / 2, 100 + 250 / 2);
     }
     
-    // ... sisa kode canvas tetap sama ...
     const scoreX = 85 + 250 / 2;
     const scoreY = 100 + 250 / 2;
     const radius = 110;
@@ -155,8 +157,6 @@ export default async function facerating(sock, message, args, query, sender, ext
     const messageKey = sentMsg.key;
 
     try {
-        // --- LANGKAH YANG HILANG SEBELUMNYA ---
-        // Unggah gambar pengguna untuk mendapatkan URL yang bisa diakses canvas
         await H.editMessage(sock, jid, `📤 Mengunggah gambar Anda...`, messageKey);
         const userImageUrl = await H.uploadImage(buffer, mimetype);
         if (!userImageUrl) {
@@ -178,7 +178,6 @@ export default async function facerating(sock, message, args, query, sender, ext
         const { statusUrl } = initialResponse.result;
         
         await H.editMessage(sock, jid, `⏳ Menunggu hasil dari AI...`, messageKey);
-        // Kita tidak lagi butuh resultImageUrl dari poll, karena Szyrine tidak mengembalikannya untuk face-rating
         await H.pollPixnovaJob(statusUrl);
 
         const { data: finalResult } = await axios.get(statusUrl);
@@ -187,7 +186,6 @@ export default async function facerating(sock, message, args, query, sender, ext
         }
 
         await H.editMessage(sock, jid, `🎨 Menggambar hasil analisis...`, messageKey);
-        // Gunakan URL gambar pengguna yang sudah kita unggah tadi
         const ratingImageBuffer = await createRatingImage(userImageUrl, finalResult.result.result);
 
         const caption = `*✨ Hasil Analisis Wajah ✨*\n\n` +
