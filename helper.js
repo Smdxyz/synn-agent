@@ -16,7 +16,7 @@ import axios from 'axios';
 import baileysHelpers from 'baileys_helpers';
 import { zip } from 'fflate';
 // Impor fungsi dari utils.js, termasuk 'sleep'
-import { getStream, toBuffer, sleep } from './utils.js';
+import { getStream, toBuffer, sleep } from './libs/utils.js';
 
 // ============================ UTILITAS =================================
 const sha256 = (data) => createHash('sha256').update(data).digest();
