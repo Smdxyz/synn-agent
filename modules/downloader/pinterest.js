@@ -48,7 +48,6 @@ export default async function pinterest(sock, message, args, query, sender, extr
                 throw new Error(`Tidak ditemukan hasil video untuk "${query}".`);
             }
             
-            // Ambil video pertama yang valid
             const firstVideo = videos.find(v => v.videoUrl);
             if (!firstVideo) {
                  throw new Error(`Hasil ditemukan, tapi tidak ada link video yang valid.`);
@@ -71,16 +70,22 @@ export default async function pinterest(sock, message, args, query, sender, extr
             throw new Error(`Tidak ditemukan hasil gambar untuk "${query}".`);
         }
 
-        // Siapkan item untuk Carousel
-        const carouselItems = images.slice(0, 10).map(img => ({
-            url: img.imageLink,
-            title: img.title || query,
-            body: `Oleh: ${img.author || 'Tidak diketahui'}`
+        // --- PERBAIKAN DI SINI ---
+        // Siapkan item untuk Carousel dengan STRUKTUR YANG BENAR
+        const carouselItems = images.slice(0, 10).map((img, index) => ({
+            image: { url: img.imageLink }, // BENAR: url berada di dalam objek 'image'
+            body: img.title || `Hasil ke-${index + 1}`,
+            footer: `Oleh: ${img.author || 'Tidak diketahui'}`,
+            buttons: [
+                // Tombol harus dalam format ini untuk fungsi helper
+                { buttonId: `pinterest_img_${index}`, displayText: 'Pilih' }
+            ]
         }));
 
+        // Panggil sendCarousel dengan payload yang sudah benar
         await sendCarousel(sock, jid, carouselItems, {
             title: `🖼️ Hasil Pencarian Pinterest`,
-            body: `Menampilkan ${carouselItems.length} gambar untuk "${query}"`,
+            text: `Menampilkan ${carouselItems.length} gambar untuk "${query}"`, // BENAR: Gunakan 'text' bukan 'body'
             footer: config.WATERMARK || config.botName
         });
         
