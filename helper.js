@@ -1,9 +1,7 @@
-// helper.js — ESM — (UPGRADED TO 'got' FOR ADVANCED SCRAPING & SMARTER DOWNLOADER)
-// Mencakup semua fitur pengiriman pesan dan perbaikan bug.
-// Menggunakan 'got' untuk mengatasi deteksi bot seperti TLS fingerprinting.
+// helper.js — FINAL VERSION BASED ON ITSUKICHAN'S LOGIC
 
 import got from 'got';
-import { downloadContentFromMessage } from '@whiskeysockets/baileys';
+import { downloadContentFromMessage, generateWAMessageFromContent } from '@whiskeysockets/baileys'; // IMPORT generateWAMessageFromContent
 import { config } from './config.js';
 import FormData from 'form-data';
 import axios from 'axios';
@@ -18,107 +16,115 @@ const streamToBuffer = async (stream) => { const chunks = []; for await (const c
 
 
 // ============================ PENGIRIM PESAN DASAR ============================
-export const sendMessage = async (sock, jid, text, options = {}) =>
-  sock.sendMessage(jid, { text }, options);
+// ... (SEMUA FUNGSI DARI sendMessage HINGGA sendLocation TETAP SAMA, TIDAK PERLU DIUBAH)
+export const sendMessage = async (sock, jid, text, options = {}) => sock.sendMessage(jid, { text }, options);
 export { sendMessage as sendText };
-
 export const sendImage = async (sock, jid, urlOrBuffer, caption = '', viewOnce = false, options = {}) => {
   const image = Buffer.isBuffer(urlOrBuffer) ? urlOrBuffer : { url: urlOrBuffer };
   return sock.sendMessage(jid, { image, caption, viewOnce }, options);
 };
-
 export const sendAudio = async (sock, jid, urlOrBuffer, options = {}) => {
   const audio = Buffer.isBuffer(urlOrBuffer) ? urlOrBuffer : { url: urlOrBuffer };
   return sock.sendMessage(jid, { audio, mimetype: options.mimetype || 'audio/mpeg', ptt: !!options.ptt }, options);
 };
-
 export const sendVideo = async (sock, jid, urlOrBuffer, caption = '', options = {}) => {
   const video = Buffer.isBuffer(urlOrBuffer) ? urlOrBuffer : { url: urlOrBuffer };
   return sock.sendMessage(jid, { video, caption, mimetype: options.mimetype || 'video/mp4' }, options);
 };
-
 export const sendGif = async (sock, jid, urlOrBuffer, caption = '', options = {}) => {
   const video = Buffer.isBuffer(urlOrBuffer) ? urlOrBuffer : { url: urlOrBuffer };
   return sock.sendMessage(jid, { video, caption, gifPlayback: true }, options);
 };
-
 export const sendDoc = async (sock, jid, urlOrBuffer, fileName = 'file', mimetype = 'application/pdf', options = {}) => {
   const document = Buffer.isBuffer(urlOrBuffer) ? urlOrBuffer : { url: urlOrBuffer };
   return sock.sendMessage(jid, { document, fileName, mimetype }, options);
 };
-
-// ============================ PENGIRIM PESAN TIPE KHUSUS ============================
 export const sendAlbum = async (sock, jid, albumPayload = [], options = {}) => {
-    if (!Array.isArray(albumPayload) || albumPayload.length === 0) {
-        throw new Error("Payload untuk album tidak boleh kosong.");
-    }
+    if (!Array.isArray(albumPayload) || albumPayload.length === 0) throw new Error("Payload untuk album tidak boleh kosong.");
     return sock.sendMessage(jid, { album: albumPayload }, options);
 };
-
 export const sendPoll = async (sock, jid, name, values, options = {}) => {
   return sock.sendMessage(jid, { poll: { name, values, selectableCount: 1 } }, options);
 };
-
 export const sendContact = async (sock, jid, fullName, org, waid, options = {}) => {
     const vcard = 'BEGIN:VCARD\n' + 'VERSION:3.0\n' + `FN:${fullName}\n` + `ORG:${org}\n` + `TEL;type=CELL;type=VOICE;waid=${waid}:+${waid}\n` + 'END:VCARD';
     return sock.sendMessage(jid, { contacts: { displayName: fullName, contacts: [{ vcard }] } }, options);
 };
-
 export const sendLocation = async (sock, jid, latitude, longitude, options = {}) => {
     return sock.sendMessage(jid, { location: { degreesLatitude: latitude, degreesLongitude: longitude } }, options);
 };
 
-// ============================ PENGIRIM PESAN INTERAKTIF (VERSI FINAL & BENAR) ============================
+
+// ============================ PENGIRIM PESAN INTERAKTIF (DITULIS ULANG BERDASARKAN LOGIKA ITSUKICHAN) ============================
 
 /**
- * Mengirim pesan Carousel dengan MEMBANGUN PAYLOAD MANUAL.
- * Ini adalah cara yang benar karena Baileys tidak mendukung format { cards: [...] } secara langsung.
- * Kita harus membuat objek `interactiveMessage` yang lengkap.
+ * Mengirim pesan Carousel dengan meniru 100% logika itsukichan.
+ * Mengatasi "Invalid media type" dengan memproses media sebelum mengirim.
  * @param {object} sock Socket Baileys
  * @param {string} jid JID Tujuan
- * @param {Array<object>} cards Array objek kartu. Format: { image: { url }, title, body, footer, buttons: [{ buttonId, displayText }] }
- * @param {object} options Opsi tambahan (text, footer, title untuk pesan utama)
+ * @param {Array<object>} cards Kartu. Format: { image: <Buffer|{url}>, video: <Buffer|{url}>, body, footer, buttons: [...] }
+ * @param {object} options Opsi tambahan
  */
 export const sendCarousel = async (sock, jid, cards = [], options = {}) => {
   if (!Array.isArray(cards) || cards.length === 0) {
     throw new Error('Payload `cards` tidak boleh kosong.');
   }
 
-  const processedCards = cards.map(card => {
-    if (!card.image || !card.image.url) {
-      throw new Error('Setiap kartu dalam carousel harus memiliki `image: { url: "..." }`.');
+  // Logika dari itsukichan: proses setiap kartu secara asinkron
+  const processedCards = await Promise.all(cards.map(async (card) => {
+    const { image, video, body, footer, buttons } = card;
+    let mediaMessage;
+    let preparedMedia;
+
+    // Siapkan media (gambar atau video)
+    if (image) {
+      preparedMedia = { image };
+    } else if (video) {
+      preparedMedia = { video };
+    } else {
+      throw new Error('Setiap kartu harus memiliki `image` atau `video`.');
     }
+
+    // Ini adalah langkah KUNCI dari itsukichan: proses media menggunakan fungsi internal Baileys
+    mediaMessage = await generateWAMessageFromContent(
+      jid,
+      preparedMedia,
+      { upload: sock.waUploadToServer } // Ini akan mengunduh, mengenkripsi, dan mengunggah media
+    );
     
-    const hydratedButtons = (card.buttons || []).map(btn => ({
-      hydratedTemplateButton: {
-        quickReplyButton: {
-          displayText: btn.displayText || btn.buttonText?.displayText,
-          id: btn.id || btn.buttonId,
-        }
-      }
+    // Siapkan tombol untuk nativeFlowMessage
+    const nativeFlowButtons = (buttons || []).map(btn => ({
+        name: 'quick_reply', // Asumsikan semua tombol adalah quick_reply untuk carousel
+        buttonParamsJson: JSON.stringify({
+            display_text: btn.displayText,
+            id: btn.id || btn.buttonId
+        })
     }));
 
-    return {
+    // Bentuk struktur satu kartu yang sudah diproses
+    const singleCard = {
       header: {
-        // title: card.title || '', // Title di dalam header kartu tidak didukung, gunakan body/footer
-        imageMessage: { url: card.image.url },
-        hasMediaAttachment: true
+        // Ambil hasil pemrosesan media (imageMessage atau videoMessage)
+        ...(mediaMessage.message.imageMessage && { imageMessage: mediaMessage.message.imageMessage }),
+        ...(mediaMessage.message.videoMessage && { videoMessage: mediaMessage.message.videoMessage }),
+        hasMediaAttachment: true,
       },
-      body: { text: card.body || '' },
-      footer: { text: card.footer || '' },
+      body: { text: body || '' },
+      footer: { text: footer || '' },
       nativeFlowMessage: {
-        buttons: hydratedButtons,
+        buttons: nativeFlowButtons,
         messageParamsJson: ''
       }
     };
-  });
+    return singleCard;
+  }));
 
+  // Susun pesan interaktif utama
   const interactiveMessage = {
     body: { text: options.text || '' },
     footer: { text: options.footer || '' },
     header: {
       title: options.title || '',
-      subtitle: options.subtitle || '',
       hasMediaAttachment: false
     },
     carouselMessage: {
@@ -127,6 +133,7 @@ export const sendCarousel = async (sock, jid, cards = [], options = {}) => {
     }
   };
 
+  // Bungkus dalam viewOnceMessage (sesuai praktik itsukichan/Baileys untuk pesan kompleks)
   const finalMessage = {
     viewOnceMessage: {
       message: {
@@ -142,91 +149,37 @@ export const sendCarousel = async (sock, jid, cards = [], options = {}) => {
   return sock.sendMessage(jid, finalMessage, options);
 };
 
-/**
- * Mengirim pesan List (Daftar Pilihan).
- * FITUR NATIVE BAİLEYS v7+: Gunakan sock.sendMessage secara langsung.
- * 'baileys_helpers' tidak diperlukan untuk ini.
- * @param {object} sock Socket Baileys
- * @param {string} jid JID Tujuan
- * @param {string} title Judul pesan
- * @param {string} text Teks body pesan
- * @param {string} buttonText Teks pada tombol untuk membuka daftar
- * @param {Array<object>} sections Array berisi section-section daftar
- */
+// --- FUNGSI INTERAKTIF LAINNYA (TETAP SAMA SEPERTI SEBELUMNYA) ---
 export const sendList = async (sock, jid, title, text, buttonText, sections = [], options = {}) => {
-  const listMessage = {
-    text: text,
-    footer: options.footer || '',
-    title: title,
-    buttonText: buttonText,
-    sections: sections,
-  };
+  const listMessage = { text, footer: options.footer || '', title, buttonText, sections };
   return sock.sendMessage(jid, listMessage, options);
 };
-
-/**
- * Mengirim pesan dengan Tombol Interaktif (Quick Reply, CTA).
- * WAJIB MENGGUNAKAN 'baileys_helpers' untuk injeksi node <biz> dan <bot> secara otomatis.
- * Ini memastikan tombol bisa tampil di chat pribadi dan grup.
- * @param {object} sock Socket Baileys
- * @param {string} jid JID Tujuan
- * @param {string} text Teks body pesan
- * @param {string} footer Teks footer pesan
- * @param {Array<object>} buttons Array objek tombol. Format sederhana: { id: 'unique-id', text: 'Display Text' } atau format native flow.
- */
 export const sendButtons = async (sock, jid, text, footer, buttons = [], options = {}) => {
-  const payload = {
-    text: text,
-    footer: footer,
-    buttons: buttons, // Langsung gunakan array tombol, helper akan mengkonversinya
-  };
+  const payload = { text, footer, buttons };
   return baileysHelpers.sendButtons(sock, jid, payload, options);
 };
-
-// Ekspor juga fungsi canggih dari helper jika diperlukan untuk campuran tombol atau jenis lanjutan
 export const sendInteractiveMessage = baileysHelpers.sendInteractiveMessage;
 
 
 // ============================ AKSI PESAN & STATUS ============================
+// ... (SEMUA FUNGSI DARI react HINGGA pollPixnovaJob TETAP SAMA)
 export const react = async (sock, jid, key, emoji = '✅') => {
   try { return await sock.sendMessage(jid, { react: { text: emoji, key } }); } catch { }
 };
-
-export const editMessage = async (sock, jid, newText, messageKey) =>
-  sock.sendMessage(jid, { text: newText, edit: messageKey });
-
-export const deleteMessage = async (sock, jid, messageKey) =>
-  sock.sendMessage(jid, { delete: messageKey });
-
-export const forwardMessage = async (sock, jid, message, options = {}) =>
-    sock.sendMessage(jid, { forward: message }, options);
-    
+export const editMessage = async (sock, jid, newText, messageKey) => sock.sendMessage(jid, { text: newText, edit: messageKey });
+export const deleteMessage = async (sock, jid, messageKey) => sock.sendMessage(jid, { delete: messageKey });
+export const forwardMessage = async (sock, jid, message, options = {}) => sock.sendMessage(jid, { forward: message }, options);
 export const setPresence = async (sock, jid, state = 'composing') => {
   try { await sock.sendPresenceUpdate(state, jid); } catch { }
 };
-
 export const typing = async (sock, jid, seconds = 1.25) => {
   await setPresence(sock, jid, 'composing'); await delay(seconds * 1000); await setPresence(sock, jid, 'paused');
 };
-
-
-// ============================ DOWNLOADER / MIME (TIDAK ADA PERUBAHAN) ============================
 export const fetchAsBufferWithMime = async (url) => {
   try {
     const response = await got(url, {
         responseType: 'buffer',
-        headers: {
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
-            'Accept-Encoding': 'gzip, deflate, br',
-            'Accept-Language': 'en-US,en;q=0.9,id-ID;q=0.8,id;q=0.7',
-            'Connection': 'keep-alive',
-            'Sec-Fetch-Dest': 'document',
-            'Sec-Fetch-Mode': 'navigate',
-            'Sec-Fetch-Site': 'none',
-            'Sec-Fetch-User': '?1',
-            'Upgrade-Insecure-Requests': '1',
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
-        },
+        headers: { 'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7', 'Accept-Encoding': 'gzip, deflate, br', 'Accept-Language': 'en-US,en;q=0.9,id-ID;q=0.8,id;q=0.7', 'Connection': 'keep-alive', 'Sec-Fetch-Dest': 'document', 'Sec-Fetch-Mode': 'navigate', 'Sec-Fetch-Site': 'none', 'Sec-Fetch-User': '?1', 'Upgrade-Insecure-Requests': '1', 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36', },
         http2: true, timeout: { request: 30000 }, retry: { limit: 2 }
     });
     const mimetype = response.headers['content-type'] || '';
@@ -237,7 +190,6 @@ export const fetchAsBufferWithMime = async (url) => {
     throw new Error(`Gagal mengunduh konten. Server tujuan menolak dengan status: ${status}`);
   }
 };
-
 export const downloadMedia = async (message) => {
     let mediaMessage = message.message?.imageMessage || message.message?.videoMessage || message.message?.stickerMessage;
     if (!mediaMessage) {
@@ -251,24 +203,17 @@ export const downloadMedia = async (message) => {
         const buffer = await streamToBuffer(stream);
         return { buffer, mimetype };
     } catch (e) {
-        console.error("Gagal mengunduh media:", e);
-        return null;
+        console.error("Gagal mengunduh media:", e); return null;
     }
 };
-
-// ============================ IMAGE HELPER & UPLOADER (TIDAK ADA PERUBAHAN) ============================
 export const uploadImage = async (buffer, mimetype = 'image/jpeg') => { 
     const form = new FormData();
     form.append('file', buffer, { filename: 'image.jpg', contentType: mimetype }); 
     const uploadUrl = `https://szyrineapi.biz.id/api/utility/upload`;
     const { data } = await axios.post(uploadUrl, form, { headers: form.getHeaders() });
-    if (data.result?.file?.url) {
-        return data.result.file.url;
-    } else {
-        throw new Error(data.result?.message || 'Gagal mengunggah gambar atau mendapatkan URL.');
-    }
+    if (data.result?.file?.url) { return data.result.file.url; }
+    else { throw new Error(data.result?.message || 'Gagal mengunggah gambar atau mendapatkan URL.'); }
 };
-
 export const pollPixnovaJob = async (statusUrl) => {
     for (let i = 0; i < 20; i++) {
         await delay(3000);
@@ -284,8 +229,7 @@ export const pollPixnovaJob = async (statusUrl) => {
 // ============================ EXPORT DEFAULT =================================
 export default {
   delay, sleep, tryDo, chunk,
-  sendMessage,
-  sendText: sendMessage,
+  sendMessage, sendText: sendMessage,
   sendImage, sendAudio, sendVideo, sendGif, sendDoc,
   sendAlbum, sendPoll, sendContact, sendLocation,
   sendCarousel, sendList, sendButtons, sendInteractiveMessage,
