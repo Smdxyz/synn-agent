@@ -1,4 +1,4 @@
-// helper.js — FINAL VERSION (FIXED 'sleep' EXPORT)
+// helper.js — FINAL VERSION (FIXED 'delay' EXPORT)
 
 import got from 'got';
 import { 
@@ -16,12 +16,13 @@ import axios from 'axios';
 import baileysHelpers from 'baileys_helpers';
 import { zip } from 'fflate';
 // Impor fungsi dari utils.js, termasuk 'sleep'
-import { getStream, toBuffer, sleep } from './libs/utils.js';
+import { getStream, toBuffer, sleep } from './utils.js';
 
 // ============================ UTILITAS =================================
 const sha256 = (data) => createHash('sha256').update(data).digest();
-// Ekspor ulang 'sleep' agar bisa diakses dari H.sleep atau diimpor langsung
-export { sleep };
+// Ekspor ulang 'sleep' dan 'delay' agar bisa diakses dari H.sleep atau diimpor langsung
+const delay = sleep; // Buat alias 'delay' yang menunjuk ke 'sleep'
+export { sleep, delay }; // <-- PERBAIKAN DI SINI
 
 // ============================ PENGIRIM PESAN DASAR ============================
 export const sendMessage = async (sock, jid, text, options = {}) => sock.sendMessage(jid, { text }, options);
@@ -294,6 +295,7 @@ export const pollPixnovaJob = async (statusUrl) => {
 // ============================ EXPORT DEFAULT =================================
 export default {
   sleep,
+  delay,
   sendMessage, sendText: sendMessage,
   sendImage, sendAudio, sendVideo, sendGif, sendDoc,
   sendSticker, sendStickerPack, sendAlbum, sendPoll, sendContact, sendLocation,
