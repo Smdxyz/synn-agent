@@ -1,9 +1,10 @@
-// helper.js — FINAL DEFINITIVE VERSION 2.0 (USING viewOnceMessageV2Extension)
+// helper.js — FINAL DEFINITIVE VERSION (REPLICATING ITSUKICHAN'S LOGIC)
 
 import got from 'got';
 import { 
     downloadContentFromMessage, 
-    generateWAMessageFromContent, 
+    generateWAMessageContent,  // Kita butuh ini, bukan generateWAMessage
+    generateWAMessageFromContent, // Dan ini juga, tapi untuk tujuan berbeda
     generateMessageID 
 } from '@whiskeysockets/baileys';
 import { config } from './config.js';
@@ -54,11 +55,10 @@ export const sendLocation = async (sock, jid, latitude, longitude, options = {})
     return sock.sendMessage(jid, { location: { degreesLatitude: latitude, degreesLongitude: longitude } }, options);
 };
 
-// ============================ PENGIRIM PESAN INTERAKTIF (PERBAIKAN FINAL DENGAN WRAPPER YANG BENAR) ============================
+// ============================ PENGIRIM PESAN INTERAKTIF (MENIRU ITSUKICHAN DENGAN PRESISI) ============================
 
 /**
- * Mengirim pesan Carousel dengan meniru itsukichan: Membangun payload manual, mengirim via relayMessage,
- * dan menggunakan wrapper `viewOnceMessageV2Extension` yang benar.
+ * Mengirim pesan Carousel dengan meniru itsukichan: Memproses media per kartu, merakit, dan mengirim.
  * @param {object} sock Socket Baileys
  * @param {string} jid JID Tujuan
  * @param {Array<object>} cards Kartu. Format: { image: <Buffer|{url}>, video: <Buffer|{url}>, body, footer, buttons: [...] }
@@ -69,17 +69,26 @@ export const sendCarousel = async (sock, jid, cards = [], options = {}) => {
     throw new Error('Payload `cards` tidak boleh kosong.');
   }
 
+  const userJid = sock.user.id;
+
+  // Langkah 1: Proses setiap kartu untuk menghasilkan media yang valid (meniru `prepareWAMessageMedia`)
   const processedCards = await Promise.all(cards.map(async (card) => {
     const { image, video, body, footer, buttons } = card;
     let preparedMedia = image ? { image } : video ? { video } : null;
     if (!preparedMedia) throw new Error('Setiap kartu harus memiliki `image` atau `video`.');
     
-    const mediaMessage = await generateWAMessageFromContent(
-      jid,
+    // Ini adalah replikasi dari `prepareWAMessageMedia` untuk satu media.
+    // Kita membuat konten pesan media, yang akan menangani upload & enkripsi.
+    const mediaContent = await generateWAMessageContent(
       preparedMedia,
-      { upload: sock.waUploadToServer, ...options }
+      {
+        upload: sock.waUploadToServer,
+        logger: sock.logger,
+        options: sock.options,
+        userJid
+      }
     );
-    
+
     const nativeFlowButtons = (buttons || []).map(btn => ({
         name: 'quick_reply',
         buttonParamsJson: JSON.stringify({
@@ -90,8 +99,9 @@ export const sendCarousel = async (sock, jid, cards = [], options = {}) => {
 
     return {
       header: {
-        ...(mediaMessage.message.imageMessage && { imageMessage: mediaMessage.message.imageMessage }),
-        ...(mediaMessage.message.videoMessage && { videoMessage: mediaMessage.message.videoMessage }),
+        // Suntikkan hasil `imageMessage` atau `videoMessage` yang sudah valid
+        ...(mediaContent.imageMessage && { imageMessage: mediaContent.imageMessage }),
+        ...(mediaContent.videoMessage && { videoMessage: mediaContent.videoMessage }),
         hasMediaAttachment: true,
       },
       body: { text: body || '' },
@@ -100,6 +110,7 @@ export const sendCarousel = async (sock, jid, cards = [], options = {}) => {
     };
   }));
 
+  // Langkah 2: Rakit payload `interactiveMessage`
   const interactiveMessage = {
     body: { text: options.text || '' },
     footer: { text: options.footer || '' },
@@ -107,8 +118,7 @@ export const sendCarousel = async (sock, jid, cards = [], options = {}) => {
     carouselMessage: { cards: processedCards, messageVersion: 1 }
   };
 
-  // INI ADALAH PERUBAIKAN KRUSIAL BERDASARKAN KODE ITSUKICHAN
-  // Menggunakan `viewOnceMessageV2Extension` sebagai wrapper, bukan `viewOnceMessage`
+  // Langkah 3: Buat pesan akhir dengan wrapper yang benar (`viewOnceMessageV2Extension`)
   const finalMessage = {
     viewOnceMessageV2Extension: {
       message: {
@@ -117,11 +127,17 @@ export const sendCarousel = async (sock, jid, cards = [], options = {}) => {
       }
     }
   };
-  
-  const messageId = options.messageId || generateMessageID();
-  await sock.relayMessage(jid, finalMessage.viewOnceMessageV2Extension.message, { messageId });
 
-  const fullMsg = await generateWAMessageFromContent(jid, finalMessage, { ...options, userJid: sock.user.id, messageId });
+  // Langkah 4: Buat `WebMessageInfo` lengkap untuk di-relay
+  const fullMsg = generateWAMessageFromContent(jid, finalMessage, {
+    ...options,
+    userJid,
+    messageId: options.messageId || generateMessageID()
+  });
+
+  // Langkah 5: Kirim pesan yang sudah jadi menggunakan `relayMessage`
+  await sock.relayMessage(jid, fullMsg.message, { messageId: fullMsg.key.id });
+
   return fullMsg;
 };
 
@@ -170,7 +186,7 @@ export const downloadMedia = async (message) => {
     let mediaMessage = message.message?.imageMessage || message.message?.videoMessage || message.message?.stickerMessage;
     if (!mediaMessage) {
         const quoted = message.message?.extendedTextMessage?.contextInfo?.quotedMessage;
-        if (quoted) mediaMessage = quoted.imageMessage || quoted.videoMessage || quoted.stickerMessage;
+        if (quoted) mediaMessage = quoted.imageMessage || quoted.videoMessage || stickerMessage;
     }
     if (!mediaMessage) return null;
     try {
