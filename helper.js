@@ -7,12 +7,7 @@ import { downloadContentFromMessage } from '@whiskeysockets/baileys';
 import { config } from './config.js';
 import FormData from 'form-data';
 import axios from 'axios';
-
-// ================== PERBAIKAN DI SINI ==================
-// Impor seluruh modul sebagai satu objek dari NAMA PAKET YANG BENAR.
-import baileysHelpers from 'baileys_helpers';
-// =======================================================
-
+import baileysHelpers from 'baileys_helpers'; // Ini tetap kita butuhkan untuk sendButtons
 
 // ============================ UTILITAS DASAR =================================
 export const delay = (ms = 500) => new Promise((r) => setTimeout(r, ms));
@@ -73,44 +68,43 @@ export const sendLocation = async (sock, jid, latitude, longitude, options = {})
     return sock.sendMessage(jid, { location: { degreesLatitude: latitude, degreesLongitude: longitude } }, options);
 };
 
-// ============================ PENGIRIM PESAN INTERAKTIF (VERSI BARU) ============================
+// ============================ PENGIRIM PESAN INTERAKTIF (PERBAIKAN FINAL) ============================
 
+// DIKEMBALIKAN: Menggunakan sock.sendMessage asli karena Baileys v7 sudah mendukungnya
 export const sendCarousel = async (sock, jid, items = [], options = {}) => {
   if (!Array.isArray(items) || items.length === 0) throw new Error('Items (kartu) tidak boleh kosong.');
-  
-  const payload = {
-    text: options.text || '',
-    title: options.title || '',
-    footer: options.footer || '',
-    cards: items,
+  const cards = items.map(item => ({
+      image: { url: item.url },
+      title: item.title || '',
+      body: item.body || '',
+      ...(Array.isArray(item.buttons) && { buttons: item.buttons }),
+  }));
+  const messagePayload = {
+      text: options.text || '',
+      title: options.title || '',
+      footer: options.footer || '',
+      cards,
   };
-  // Menggunakan objek yang benar: baileysHelpers
-  return baileysHelpers.sendCarousel(sock, jid, payload, options);
+  return sock.sendMessage(jid, messagePayload, options);
 };
 
+// DIKEMBALIKAN: Menggunakan sock.sendMessage asli karena Baileys v7 sudah mendukungnya
 export const sendList = async (sock, jid, title, text, buttonText, sections = [], options = {}) => {
-  const payload = {
-      title: title,
-      text: text,
-      buttonText: buttonText,
-      sections: sections
-  };
-  // Menggunakan objek yang benar: baileysHelpers
-  return baileysHelpers.sendList(sock, jid, payload, options);
+  const listMessage = { title, text, buttonText, sections };
+  return sock.sendMessage(jid, listMessage, options);
 };
 
+// TETAP: Menggunakan baileysHelpers karena ini adalah fungsi utamanya
 export const sendButtons = async (sock, jid, text, footer, buttons = [], options = {}) => {
   const convertedButtons = buttons.map(b => ({
       id: b.buttonId,
       text: b.buttonText.displayText
   }));
-
   const payload = {
       text: text,
       footer: footer,
       buttons: convertedButtons
   };
-  // Menggunakan objek yang benar: baileysHelpers
   return baileysHelpers.sendButtons(sock, jid, payload, options);
 };
 
@@ -137,7 +131,7 @@ export const typing = async (sock, jid, seconds = 1.25) => {
 };
 
 
-// ============================ DOWNLOADER / MIME (MENGGUNAKAN 'got') ============================
+// ============================ DOWNLOADER / MIME (TIDAK ADA PERUBAHAN) ============================
 export const fetchAsBufferWithMime = async (url) => {
   try {
     const response = await got(url, {
@@ -154,13 +148,7 @@ export const fetchAsBufferWithMime = async (url) => {
             'Upgrade-Insecure-Requests': '1',
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
         },
-        http2: true,
-        timeout: {
-            request: 30000 
-        },
-        retry: {
-            limit: 2 
-        }
+        http2: true, timeout: { request: 30000 }, retry: { limit: 2 }
     });
     const mimetype = response.headers['content-type'] || '';
     return { buffer: response.body, mimetype };
@@ -172,22 +160,15 @@ export const fetchAsBufferWithMime = async (url) => {
 };
 
 export const downloadMedia = async (message) => {
-    let mediaMessage = message.message?.imageMessage || 
-                       message.message?.videoMessage ||
-                       message.message?.stickerMessage;
+    let mediaMessage = message.message?.imageMessage || message.message?.videoMessage || message.message?.stickerMessage;
     if (!mediaMessage) {
         const quoted = message.message?.extendedTextMessage?.contextInfo?.quotedMessage;
-        if (quoted) {
-            mediaMessage = quoted.imageMessage || quoted.videoMessage || quoted.stickerMessage;
-        }
+        if (quoted) mediaMessage = quoted.imageMessage || quoted.videoMessage || quoted.stickerMessage;
     }
     if (!mediaMessage) return null;
     try {
         const mimetype = mediaMessage.mimetype;
-        const stream = await downloadContentFromMessage(
-            mediaMessage, 
-            mediaMessage.videoMessage ? 'video' : (mediaMessage.stickerMessage ? 'sticker' : 'image')
-        );
+        const stream = await downloadContentFromMessage(mediaMessage, mediaMessage.videoMessage ? 'video' : (mediaMessage.stickerMessage ? 'sticker' : 'image'));
         const buffer = await streamToBuffer(stream);
         return { buffer, mimetype };
     } catch (e) {
@@ -196,15 +177,12 @@ export const downloadMedia = async (message) => {
     }
 };
 
-
-// ============================ IMAGE HELPER & UPLOADER (MENGGUNAKAN 'axios') ============================
+// ============================ IMAGE HELPER & UPLOADER (TIDAK ADA PERUBAHAN) ============================
 export const uploadImage = async (buffer, mimetype = 'image/jpeg') => { 
     const form = new FormData();
     form.append('file', buffer, { filename: 'image.jpg', contentType: mimetype }); 
     const uploadUrl = `https://szyrineapi.biz.id/api/utility/upload`;
-    const { data } = await axios.post(uploadUrl, form, {
-        headers: form.getHeaders()
-    });
+    const { data } = await axios.post(uploadUrl, form, { headers: form.getHeaders() });
     if (data.result?.file?.url) {
         return data.result.file.url;
     } else {
@@ -217,33 +195,21 @@ export const pollPixnovaJob = async (statusUrl) => {
         await delay(3000);
         try {
             const data = await got(statusUrl).json();
-            if (data.result?.status === 'completed') {
-                return data.result.result.imageUrl || data.result.result.url || data.result.result_url;
-            }
-            if (data.result?.status === 'failed' || data.result?.status === 'error') {
-                throw new Error(`Proses job gagal: ${data.result.message || 'Alasan tidak diketahui'}`);
-            }
+            if (data.result?.status === 'completed') return data.result.result.imageUrl || data.result.result.url || data.result.result_url;
+            if (data.result?.status === 'failed' || data.result?.status === 'error') throw new Error(`Proses job gagal: ${data.result.message || 'Alasan tidak diketahui'}`);
         } catch (e) {}
     }
     throw new Error('Waktu pemrosesan habis (timeout).');
 };
 
-
 // ============================ EXPORT DEFAULT =================================
 export default {
-  // Utils
   delay, sleep, tryDo, chunk,
-  // Senders
   sendMessage, sendText: sendMessage,
   sendImage, sendAudio, sendVideo, sendGif, sendDoc,
   sendAlbum, sendPoll, sendContact, sendLocation,
   sendCarousel, sendList, sendButtons,
-  // Actions & Presence
   react, editMessage, deleteMessage, forwardMessage,
   setPresence, typing,
-  // Downloader & Uploader
-  fetchAsBufferWithMime,
-  downloadMedia,
-  uploadImage,
-  pollPixnovaJob,
+  fetchAsBufferWithMime, downloadMedia, uploadImage, pollPixnovaJob,
 };

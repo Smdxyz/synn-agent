@@ -1,4 +1,4 @@
-// connection.js (YOUR ORIGINAL CODE + THE SMALLEST POSSIBLE FIX)
+// connection.js (MODIFIED FOR SELF-RESTARTING)
 
 import * as baileys from '@whiskeysockets/baileys';
 import pino from "pino";
@@ -19,12 +19,11 @@ export async function connectToWhatsApp() {
     version,
     auth: state,
     printQRInTerminal: false,
-    logger: pino({ level: "info" }), // LOGGER ASLI, TIDAK DIUBAH SAMA SEKALI
+    logger: pino({ level: "info" }),
     keepAliveIntervalMs: 30000,
     connectTimeoutMs: 60000, 
   });
 
-  // KODE PAIRING ASLI LU, TIDAK DISENTUH
   if (!sock.authState.creds.registered) {
     await new Promise(r => setTimeout(r, 1500));
     const phoneNumber = await question(
@@ -35,7 +34,8 @@ export async function connectToWhatsApp() {
       console.log(`\n================================\n Kode Pairing Anda: ${code}\n================================\n`);
     } catch (error) {
       console.error("Gagal meminta kode pairing:", error);
-      process.exit(1);
+      // DIUBAH: Lemparkan error agar loop utama berhenti
+      throw new Error("Pairing failed");
     }
   }
 
@@ -53,22 +53,24 @@ export async function connectToWhatsApp() {
       const isLogout = statusCode === baileys.DisconnectReason.loggedOut;
       const isRestartRequired = statusCode === baileys.DisconnectReason.restartRequired;
 
+      // ======================= PERUBAHAN UTAMA DI SINI =======================
       if (isLogout) {
-        console.log("❌ Perangkat Telah Keluar (Logout). Hapus 'auth_info_baileys' dan scan ulang. Bot tidak akan restart.");
-        process.exit(0);
+        const reason = "Perangkat Telah Keluar (Logout)";
+        console.log(`❌ ${reason}. Hapus 'auth_info_baileys' dan scan ulang.`);
+        // DIUBAH: Lemparkan error spesifik untuk sinyal 'jangan restart'
+        sock.ev.emit('connection.logout', new Error(reason));
       } 
-      // JIKA SERVER MINTA RESTART (KASUS LU), ATAU ADA ERROR FATAL LAINNYA, BARU KITA RESTART
       else if (isRestartRequired) {
         const reason = lastDisconnect.error?.message || 'Restart Required';
         console.error(`❌ Koneksi terputus. Alasan: ${reason}. Kode: ${statusCode}`);
-        console.log("🔥 Server meminta restart, memulai restart penuh via PM2...");
-        process.exit(1);
+        // DIUBAH: Lemparkan error spesifik untuk sinyal 'restart'
+        sock.ev.emit('connection.restart', new Error(reason));
       }
-      // UNTUK SEMUA MASALAH LAIN (STREAM ERROR BIASA, KONEKSI PUTUS SESAAT), KITA DIAMKAN.
       else {
         const reason = lastDisconnect.error?.message || 'Unknown Network Error';
         console.log(`🔌 Koneksi terputus sementara (${reason}). Baileys akan mencoba menyambung ulang otomatis.`);
       }
+      // =======================================================================
     }
   });
 
