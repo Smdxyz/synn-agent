@@ -20,7 +20,7 @@ const streamToBuffer = async (stream) => { const chunks = []; for await (const c
 // ============================ PENGIRIM PESAN DASAR ============================
 export const sendMessage = async (sock, jid, text, options = {}) =>
   sock.sendMessage(jid, { text }, options);
-export { sendMessage as sendText };
+export { sendMessage as sendText }; // Ini adalah named export alias, tetap di sini
 
 export const sendImage = async (sock, jid, urlOrBuffer, caption = '', viewOnce = false, options = {}) => {
   const image = Buffer.isBuffer(urlOrBuffer) ? urlOrBuffer : { url: urlOrBuffer };
@@ -234,7 +234,8 @@ export const pollPixnovaJob = async (statusUrl) => {
 // ============================ EXPORT DEFAULT =================================
 export default {
   delay, sleep, tryDo, chunk,
-  sendMessage, sendText,
+  sendMessage,
+  sendText: sendMessage, // Ini cara yang benar untuk membuat alias di default export
   sendImage, sendAudio, sendVideo, sendGif, sendDoc,
   sendAlbum, sendPoll, sendContact, sendLocation,
   sendCarousel, sendList, sendButtons, sendInteractiveMessage,
