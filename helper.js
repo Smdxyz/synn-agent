@@ -1,4 +1,4 @@
-// helper.js — FINAL VERSION (FIXED 'delay' EXPORT)
+// helper.js — FINAL VERSION (FIXED 'pollPixnovaJob' & 'delay' EXPORT)
 
 import got from 'got';
 import { 
@@ -22,7 +22,7 @@ import { getStream, toBuffer, sleep } from './libs/utils.js';
 const sha256 = (data) => createHash('sha256').update(data).digest();
 // Ekspor ulang 'sleep' dan 'delay' agar bisa diakses dari H.sleep atau diimpor langsung
 const delay = sleep; // Buat alias 'delay' yang menunjuk ke 'sleep'
-export { sleep, delay }; // <-- PERBAIKAN DI SINI
+export { sleep, delay };
 
 // ============================ PENGIRIM PESAN DASAR ============================
 export const sendMessage = async (sock, jid, text, options = {}) => sock.sendMessage(jid, { text }, options);
@@ -280,14 +280,47 @@ export const uploadImage = async (buffer, mimetype = 'image/jpeg') => {
     if (data.result?.file?.url) { return data.result.file.url; }
     else { throw new Error(data.result?.message || 'Gagal mengunggah gambar atau mendapatkan URL.'); }
 };
+
+// ============================ FUNGSI POLLING CERDAS =================================
+
 export const pollPixnovaJob = async (statusUrl) => {
-    for (let i = 0; i < 20; i++) {
-        await sleep(3000);
+    for (let i = 0; i < 20; i++) { // Coba polling hingga 20 kali (total ~60 detik)
+        await sleep(3000); // Beri jeda 3 detik antar percobaan
         try {
             const data = await got(statusUrl).json();
-            if (data.result?.status === 'completed') return data.result.result.imageUrl || data.result.result.url || data.result.result_url;
-            if (data.result?.status === 'failed' || data.result?.status === 'error') throw new Error(`Proses job gagal: ${data.result.message || 'Alasan tidak diketahui'}`);
-        } catch (e) {}
+            const jobResult = data.result;
+
+            if (jobResult?.status === 'completed') {
+                const finalResult = jobResult.result;
+
+                // --- LOGIKA PENANGANAN RESPONS CERDAS ---
+                
+                // 1. Cek apakah hasilnya adalah string URL langsung
+                if (typeof finalResult === 'string' && finalResult.startsWith('http')) {
+                    return finalResult;
+                }
+                
+                // 2. Cek apakah hasilnya adalah objek yang berisi URL
+                if (typeof finalResult === 'object' && finalResult !== null) {
+                    const url = finalResult.imageUrl || finalResult.url || finalResult.result_url;
+                    if (url) return url;
+                }
+                
+                // Jika tidak ada URL yang ditemukan, lemparkan error spesifik
+                throw new Error('Format hasil dari job tidak dikenali (bukan URL).');
+            }
+
+            if (jobResult?.status === 'failed' || jobResult?.status === 'error') {
+                throw new Error(`Proses job gagal: ${jobResult.message || 'Alasan tidak diketahui'}`);
+            }
+            // Jika status masih 'processing', loop akan berlanjut
+        } catch (e) {
+            // Abaikan error sementara (misal: network issue) dan coba lagi, kecuali itu error fatal
+            if (e.message.startsWith('Proses job gagal') || e.message.startsWith('Format hasil')) {
+               throw e; // Lemparkan ulang error fatal agar command tahu
+            }
+            console.warn(`[POLL_JOB] Percobaan polling gagal, mencoba lagi... Error: ${e.message}`);
+        }
     }
     throw new Error('Waktu pemrosesan habis (timeout).');
 };

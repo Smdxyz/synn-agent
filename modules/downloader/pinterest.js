@@ -48,7 +48,7 @@ async function handleUpscaleSelection(sock, message, text, context) {
         form.append('image', buffer, { filename: 'image.jpg', contentType: mimetype });
         form.append('scale', '4');
 
-        const { data: jobData } = await axios.post('https://szyrineapi.biz.id/api/img/pixnova/upscale', form, { 
+        const { data: jobData } = await axios.post('https://szyrineapi.biz.id/api/img/pixnova/image-upscale', form, { 
           headers: form.getHeaders() 
         });
 

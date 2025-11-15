@@ -34,7 +34,7 @@ export default async function pixnovaUpscale(sock, message, args, query, sender)
     form.append('image', buffer, { filename: 'image.jpg', contentType: mimetype });
     form.append('scale', scale);
 
-    const { data: jobData } = await axios.post('https://szyrineapi.biz.id/api/img/pixnova/upscale', form, { 
+    const { data: jobData } = await axios.post('https://szyrineapi.biz.id/api/img/pixnova/image-upscale', form, { 
       headers: form.getHeaders() 
     });
 
