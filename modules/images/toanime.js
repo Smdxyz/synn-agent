@@ -1,4 +1,4 @@
-// modules/images/toanime.js
+// modules/images/toanime.js (UPDATED WITH NEW MODELS & ENDPOINT)
 
 import axios from 'axios';
 import FormData from 'form-data';
@@ -6,71 +6,59 @@ import H from '../../helper.js';
 import { config } from '../../config.js';
 
 // --- METADATA COMMAND ---
-export const category = 'Images';
-export const description = 'Mengubah gambar wajah menjadi style anime menggunakan AI.';
+export const name = 'toanime';
+export const category = 'AI';
+export const description = 'Mengubah foto menjadi gaya anime menggunakan berbagai model AI.';
 export const usage = `${config.BOT_PREFIX}toanime [model]`;
 export const aliases = ['jadianime', 'animefilter'];
 
+// Mapping dari nama simpel ke nama file model di API
+const modelMap = {
+    'meinamix': 'meinamix_meinaV10.safetensors',
+    'meinahentai': 'MeinaHentai_v4.safetensors',
+    'astranime': 'AstraAnime_v6.safetensors'
+};
+const availableModels = Object.keys(modelMap); // ['meinamix', 'meinahentai', 'astranime']
+
 // --- FUNGSI UTAMA COMMAND ---
-export default async function toanime(sock, message, args, query, sender, extras) {
-    const jid = message.key.remoteJid;
+export default async function toanime(sock, message, args, query, sender) {
+    const userModel = (query || 'meinamix').trim().toLowerCase();
 
-    // Cek media (perlu mimetype juga)
+    if (!availableModels.includes(userModel)) {
+        const helpText = `❌ *Model tidak valid!*\n\nModel yang tersedia:\n- ${availableModels.join('\n- ')}\n\n*Contoh:* .toanime meinamix`;
+        return H.sendMessage(sock, sender, helpText, { quoted: message });
+    }
+
     const media = await H.downloadMedia(message);
-    
-    // Daftar model yang valid
-    const availableModels = ['anime', 'meinahentai', 'astranime'];
-    
-    // Tentukan model
-    let model = 'anime'; // Model default
-    const userModel = query.trim().toLowerCase();
-    if (userModel && !availableModels.includes(userModel)) {
-        const helpText = `❌ *Model tidak valid!*\n\nModel yang tersedia:\n- ${availableModels.join('\n- ')}\n\nContoh: \`${usage}\``;
-        return H.sendMessage(sock, jid, helpText, { quoted: message });
-    } else if (availableModels.includes(userModel)) {
-        model = userModel;
-    }
-
     if (!media) {
-        const helpText = `❌ *Gambar tidak ditemukan!*\n\nKirim atau balas gambar dengan caption:\n\`${usage}\`\n\n*Model Opsional:*\n- anime (default)\n- meinahentai\n- astranime`;
-        return H.sendMessage(sock, jid, helpText, { quoted: message });
+        return H.sendMessage(sock, sender, '❌ *Gambar tidak ditemukan!*\n\nKirim atau balas gambar dengan caption `.toanime [model]`', { quoted: message });
     }
-
+    
     const { buffer, mimetype } = media;
+    const modelNameApi = modelMap[userModel];
 
-    await H.react(sock, jid, message.key, '🎨');
-    const sentMsg = await H.sendMessage(sock, jid, `⏳ Memulai proses anime filter...`, { quoted: message });
-    const messageKey = sentMsg.key;
+    await H.react(sock, sender, message.key, '🎨');
+    const waitingMsg = await H.sendMessage(sock, sender, `⏳ Mengubah gambar menjadi anime dengan model *${userModel}*...`, { quoted: message });
 
     try {
-        await H.delay(1000);
-        await H.editMessage(sock, jid, `✨ Mengubah gambar menjadi anime dengan model *${model}*... (Ini mungkin perlu waktu)`, messageKey);
-        
         const form = new FormData();
         form.append('image', buffer, { filename: 'image.jpg', contentType: mimetype });
-        form.append('model', model);
+        form.append('modelName', modelNameApi);
 
-        const initialResponse = await axios.post('https://szyrineapi.biz.id/api/img/pixnova/img2anime', form, {
-            headers: form.getHeaders(),
-        });
+        const apiUrl = 'https://szyrineapi.biz.id/api/img/pixnova/photo-to-anime';
+        const { data: jobData } = await axios.post(apiUrl, form, { headers: form.getHeaders() });
 
-        if (initialResponse.data?.status !== 200 || !initialResponse.data.result?.statusUrl) {
-            throw new Error('Gagal memulai proses di API. Coba lagi nanti.');
+        if (!jobData.result?.statusUrl) {
+            throw new Error(jobData.result?.message || 'Gagal memulai job To Anime.');
         }
-        
-        const { statusUrl } = initialResponse.data.result;
-        const finalImageUrl = await H.pollPixnovaJob(statusUrl);
 
-        if (finalImageUrl) {
-            await H.sendImage(sock, jid, finalImageUrl, `*🎨 Hasil Anime 🎨*\n\n*Model:* ${model}\n\n*${config.WATERMARK}*`, false, { quoted: message });
-            await H.editMessage(sock, jid, '✅ Sukses!', messageKey);
-        } else {
-            throw new Error('Waktu pemrosesan habis (timeout). Silakan coba lagi.');
-        }
+        const finalUrl = await H.pollPixnovaJob(jobData.result.statusUrl);
+
+        await H.sendImage(sock, sender, finalUrl, `*🎨 Hasil Anime 🎨*\n\n*Model:* ${userModel}`, false, { quoted: message });
+        await sock.sendMessage(sender, { delete: waitingMsg.key });
 
     } catch (error) {
-        console.error("ToAnime Command Error:", error);
-        const errorMessage = error.response?.data?.message || error.message || "Terjadi kesalahan yang tidak diketahui.";
-        await H.editMessage(sock, jid, `❌ Gagal memproses gambar: ${errorMessage}`, messageKey);
+        console.error(`[TOANIME ERROR]`, error);
+        await H.editMessage(sock, sender, `❌ Gagal memproses gambar: ${error.message}`, waitingMsg.key);
     }
 }
