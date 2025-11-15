@@ -6,7 +6,7 @@ export const config = {
   mode: "public",
   antiCall: true,
   antiSpamKeywords: ["pinjol", "pinjaman online"],
-  BOT_PREFIX: "!",
+  BOT_PREFIX: ".",
   WATERMARK: "Synn WhatsApp",
   SZYRINE_API_KEY: "SANN21" // <-- TAMBAHKAN BARIS INI (Ganti dengan API Key Anda)
 };
