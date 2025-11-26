@@ -1,4 +1,4 @@
-// modules/downloaders/playspo.js (FIXED - artists is a string, not array)
+// modules/downloaders/playspo.js (FIXED - Updated download API response structure)
 
 import { config } from '../../config.js';
 import { sendMessage, sendAudio, sendImage, editMessage, react } from '../../helper.js';
@@ -11,6 +11,7 @@ export const description = 'Mencari dan mengunduh lagu dari Spotify.';
 export const usage = `${config.BOT_PREFIX}playspo <judul lagu>`;
 export const aliases = ['spotify', 'findspo'];
 
+// Fungsi ini tidak perlu diubah, karena sudah benar menangani respons dari endpoint 'search'
 async function searchSpotify(query) {
     const { data } = await axios.get(`https://szyrineapi.biz.id/api/dl/spotify/search?q=${encodeURIComponent(query)}&limit=1&apikey=${config.SZYRINE_API_KEY}`);
     if (data?.status === 200 && Array.isArray(data.result) && data.result.length > 0) {
@@ -18,7 +19,6 @@ async function searchSpotify(query) {
         return {
              ...item,
              title: he.decode(item.title || 'N/A'),
-             // <-- PERUBAHAN DI SINI: Langsung gunakan 'item.artists' karena sudah berupa string
              artists: he.decode(item.artists || 'N/A'),
              album: { ...item.album, name: he.decode(item.album?.name || 'N/A') }
         };
@@ -26,23 +26,28 @@ async function searchSpotify(query) {
     throw new Error(`Gagal menemukan lagu "${query}" di Spotify.`);
 }
 
+// ================== PERUBAHAN UTAMA DI SINI ==================
 async function getSpotifyDownloadUrl(spotifyUrl) {
     try {
         const apiUrl = `https://szyrineapi.biz.id/api/dl/spotify/download?url=${encodeURIComponent(spotifyUrl)}&apikey=${config.SZYRINE_API_KEY}`;
         const { data } = await axios.get(apiUrl, { timeout: 120000 });
         
-        const downloadUrl = data.result?.link;
+        // Sesuaikan dengan struktur JSON yang baru
+        const result = data.result;
+        const downloadUrl = result?.downloadUrl; // <-- Kunci diubah dari 'link' menjadi 'downloadUrl'
         
-        if (downloadUrl) {
+        if (result?.status === true && downloadUrl) {
             return downloadUrl;
         } else {
-            throw new Error(data.result?.message || 'API merespon tapi tidak memberikan link download.');
+            // Berikan pesan error yang lebih informatif jika ada dari API
+            throw new Error(result?.message || 'API merespon tapi tidak memberikan link download.');
         }
     } catch (error) {
         console.error("Error saat mengambil link download Spotify:", error.message);
         throw new Error(`Gagal mendapatkan link download dari API. Coba lagi nanti.`);
     }
 }
+// ===============================================================
 
 // --- FUNGSI UTAMA COMMAND ---
 export default async function playspo(sock, message, args, query, sender) {
@@ -84,7 +89,7 @@ export default async function playspo(sock, message, args, query, sender) {
 
     } catch (err) {
         const errorMessage = `❌ Gagal: ${err.message}`;
-        console.error("[PLAY SPO] Error:", err); // Log error lengkap untuk debugging
+        console.error("[PLAY SPO] Error:", err);
         await editMessage(sock, sender, errorMessage, messageKey);
     }
 };
