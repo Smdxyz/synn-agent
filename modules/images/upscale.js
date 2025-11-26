@@ -6,7 +6,7 @@ import H from '../../helper.js';
 import { config } from '../../config.js';
 
 export const category = 'Images';
-export const description = 'Upscale gambar ke HD + Optimalisasi khusus WhatsApp Story/Chat (Anti Pecah).';
+export const description = 'Upscale gambar ke HD + Smart Optimizer (Auto-Detect Anime/Real/Night).';
 export const usage = `${config.BOT_PREFIX}upscale`;
 export const aliases = ['hd', 'remini-hd', 'sw-hd'];
 
@@ -14,29 +14,34 @@ export default async function upscale(sock, message, args, query, sender, extras
   const m = message;
   const jid = m.key.remoteJid;
 
+  // 1. Download Media
   const media = await H.downloadMedia(m);
   if (!media) {
     return H.sendMessage(
       sock,
       jid,
-      '❌ *Gambar tidak ditemukan!*\n\nKirim/balas gambar dengan caption `!upscale`',
+      '❌ *Gambar tidak ditemukan!*\n\nKirim atau balas gambar dengan caption `!upscale`',
       { quoted: m }
     );
   }
 
   const { buffer, mimetype } = media;
 
+  // 2. Notifikasi Awal
   await H.react(sock, jid, m.key, '📸');
-  const sentMsg = await H.sendMessage(sock, jid, '⏳ Proses Upscale & Tuning...', { quoted: m });
+  const sentMsg = await H.sendMessage(sock, jid, '⏳ *Analyzing & Upscaling...*', { quoted: m });
   const messageKey = sentMsg.key;
 
   try {
-    // 1. UPLOAD KE API UPSCALE (Biar resolusi naik dulu & noise hilang)
-    await H.editMessage(sock, jid, '🚀 Boosting Resolution...', messageKey);
+    // --------------------------------------------------------------------------------
+    // TAHAP 1: UPLOAD KE API AI (Untuk menaikkan resolusi dasar & hapus noise parah)
+    // --------------------------------------------------------------------------------
+    await H.editMessage(sock, jid, '🚀 Boosting Resolution (AI)...', messageKey);
     
     const form = new FormData();
     form.append('image', buffer, { filename: 'image.jpg', contentType: mimetype || 'image/jpeg' });
 
+    // API Upscaler (Sesuai kode originalmu)
     const response = await axios.post(
       'https://szyrineapi.biz.id/api/img/upscale/imgupscaler',
       form,
@@ -45,55 +50,96 @@ export default async function upscale(sock, message, args, query, sender, extras
 
     const result = response.data.result;
     if (response.data.status !== 200 || !result?.success || !result?.result_url) {
-      throw new Error(result?.message || 'Gagal upscale gambar.');
+      throw new Error(result?.message || 'Gagal respon dari API Upscale.');
     }
 
-    // 2. DOWNLOAD HASIL UPSCALE
-    await H.editMessage(sock, jid, '💎 Mengoptimalkan Pixel (Sharp)...', messageKey);
+    // Download hasil mentah dari API
     const resImg = await axios.get(result.result_url, { responseType: 'arraybuffer' });
     let imageBuffer = Buffer.from(resImg.data);
 
-    // 3. MAGIC SHARP (Optimizer Anti-Burik WA)
-    // Kita buat dua layer proses: Resize Cerdas + Color Retention
-    
+    // --------------------------------------------------------------------------------
+    // TAHAP 2: SMART PROCESSING (Adaptive Logic)
+    // --------------------------------------------------------------------------------
+    await H.editMessage(sock, jid, '🎨 Applying Smart Filters...', messageKey);
+
     const pipeline = sharp(imageBuffer);
     const metadata = await pipeline.metadata();
+    const stats = await pipeline.stats(); // Analisis histogram warna
 
-    // Logika Resize:
-    // WA Story mentok di lebar 1080px atau tinggi 1920px.
-    // Jangan kasih file 4K ke WA, nanti dihancurin algoritmanya.
-    // Kita resize manual pake Lanczos3 (Super Tajam) ke batas aman WA.
+    // -- A. Analisis Data Gambar --
+    // Hitung rata-rata kecerahan (0-255)
+    const brightness = (stats.channels[0].mean + stats.channels[1].mean + stats.channels[2].mean) / 3;
+    // Hitung variasi pixel (Standard Deviation) -> Menentukan tekstur (Anime vs Real)
+    const deviation = (stats.channels[0].stdev + stats.channels[1].stdev + stats.channels[2].stdev) / 3;
+
+    let sharpParams = {};
+    let saturationBoost = 1.0;
+    let modeName = '';
+
+    // -- B. Tentukan Mode Otomatis --
     
+    // KASUS 1: LOW LIGHT / MALAM (Brightness rendah)
+    if (brightness < 60) {
+        modeName = 'Night Mode 🌙';
+        // Sharpening halus saja, fokus kurangi noise di area hitam
+        sharpParams = { sigma: 1.0, m1: 1.0, m2: 2.0, x1: 2, y2: 10, y3: 15 };
+        saturationBoost = 1.1; // Sedikit boost warna biar gak kusam
+    } 
+    // KASUS 2: ANIME / VEKTOR (Deviasi rendah, warna blok solid)
+    else if (deviation < 75) {
+        modeName = 'Anime/Vector Mode ⛩️';
+        // Sharpening agresif untuk garis tepi (line art) yang tegas
+        sharpParams = { sigma: 1.4, m1: 0.3, y2: 18, x1: 1.0 };
+        saturationBoost = 1.15; // Anime lebih hidup dengan warna vibrant
+    } 
+    // KASUS 3: FOTO REAL / PEMANDANGAN (Deviasi tinggi, tekstur rumit)
+    else {
+        modeName = 'Realistic Mode 📷';
+        // Sharpening moderat/aman supaya wajah tidak kasar
+        sharpParams = { sigma: 0.9, m1: 0.5, y2: 12, x1: 2.0 };
+        saturationBoost = 1.05; // Natural
+    }
+
+    console.log(`[Upscale] Stats: Brightness=${brightness.toFixed(0)}, Dev=${deviation.toFixed(0)} | Mode: ${modeName}`);
+
+    // -- C. Eksekusi Pipeline Akhir --
     imageBuffer = await pipeline
+        // 1. Resize Cerdas (Downscaling aman buat WA)
         .resize({
-            width: metadata.width > metadata.height ? 1920 : 1080, // Landscape: 1920w, Portrait: 1080w
-            height: metadata.width > metadata.height ? 1080 : 1920, // Ikuti rasio HP
-            fit: 'inside', // Pastikan gambar masuk frame tanpa kepotong
-            withoutEnlargement: true, // Kalau gambar aslinya kecil, jangan dipaksa
-            kernel: sharp.kernel.lanczos3 // Algoritma resize terbaik
+            width: metadata.width > metadata.height ? 1920 : 1080, // Max width 1920 (Landscape) atau 1080 (Portrait)
+            height: metadata.width > metadata.height ? 1080 : 1920,
+            fit: 'inside', // Jaga aspek rasio
+            withoutEnlargement: true, // Jangan paksa gambar kecil jadi besar (pecah nanti)
+            kernel: sharp.kernel.lanczos3 // Algoritma resize paling detail
         })
-        // RAHASIA SW TAJAM: Tambahin Sharpening (Unsharp Mask)
-        // Sigma 1.0 - 1.5 bikin gambar agak "kasar" di PC, tapi pas masuk WA jadi TAJAM & JERNIH.
-        .sharpen({
-            sigma: 1.2, 
-            m1: 0.5,
-            y2: 15,
-            x1: 1.5
+        // 2. Atur Warna
+        .modulate({
+            saturation: saturationBoost
         })
-        // Metadata DPI (Beberapa HP baca ini buat rendering)
+        // 3. Terapkan Sharpening sesuai Mode
+        .sharpen(sharpParams)
+        // 4. Final Output dengan MozJPEG (High Quality Compression)
         .withMetadata({ density: 300 }) 
         .jpeg({
-            quality: 92, // 92% is sweet spot. 100% file kegedean, WA bakal curiga & kompres ulang.
-            chromaSubsampling: '4:4:4', // WAJIB: Biar warna merah/biru gak pecah
-            mozjpeg: true, // Kompresi pintar
+            quality: 92, // Titik keseimbangan terbaik size vs quality
+            chromaSubsampling: '4:4:4', // WAJIB: Biar mata merah/teks merah gak pecah
+            mozjpeg: true,
             force: true
         })
         .toBuffer();
 
-    // 4. KIRIM
-    await H.sendImage(sock, jid, imageBuffer, `*✨ HD Mode (Status Optimized) ✨*\n\nResolusi disesuaikan agar tidak pecah saat dijadikan SW/Story.\n\n*${config.WATERMARK}*`, false, { quoted: m });
+    // --------------------------------------------------------------------------------
+    // TAHAP 3: KIRIM HASIL
+    // --------------------------------------------------------------------------------
+    const caption = `*✨ HD Result (Auto-Tuned) ✨*\n\n` +
+                    `🧩 *Mode:* ${modeName}\n` +
+                    `📊 *Res:* ${metadata.width}x${metadata.height} ➝ Optimized HD\n` +
+                    `🛡️ *Anti-Blur:* Active (MozJPEG)\n\n` +
+                    `*${config.WATERMARK}*`;
+
+    await H.sendImage(sock, jid, imageBuffer, caption, false, { quoted: m });
     
-    await H.editMessage(sock, jid, '✅ Done! Siap post SW.', messageKey);
+    await H.editMessage(sock, jid, '✅ Done!', messageKey);
 
   } catch (error) {
     console.error('Upscale Error:', error);
