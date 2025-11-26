@@ -1,4 +1,4 @@
-// modules/downloaders/playspo.js (FIXED - Updated download API response structure)
+// modules/downloaders/playspo.js (FIXED - Get thumbnail from download API response)
 
 import { config } from '../../config.js';
 import { sendMessage, sendAudio, sendImage, editMessage, react } from '../../helper.js';
@@ -11,7 +11,7 @@ export const description = 'Mencari dan mengunduh lagu dari Spotify.';
 export const usage = `${config.BOT_PREFIX}playspo <judul lagu>`;
 export const aliases = ['spotify', 'findspo'];
 
-// Fungsi ini tidak perlu diubah, karena sudah benar menangani respons dari endpoint 'search'
+// Fungsi search tidak perlu diubah, tugasnya hanya mencari lagu dan mendapatkan URL Spotify-nya.
 async function searchSpotify(query) {
     const { data } = await axios.get(`https://szyrineapi.biz.id/api/dl/spotify/search?q=${encodeURIComponent(query)}&limit=1&apikey=${config.SZYRINE_API_KEY}`);
     if (data?.status === 200 && Array.isArray(data.result) && data.result.length > 0) {
@@ -27,24 +27,24 @@ async function searchSpotify(query) {
 }
 
 // ================== PERUBAHAN UTAMA DI SINI ==================
-async function getSpotifyDownloadUrl(spotifyUrl) {
+// Fungsi ini sekarang akan mengembalikan objek berisi URL download DAN thumbnail.
+async function getSpotifyDownloadData(spotifyUrl) {
     try {
         const apiUrl = `https://szyrineapi.biz.id/api/dl/spotify/download?url=${encodeURIComponent(spotifyUrl)}&apikey=${config.SZYRINE_API_KEY}`;
         const { data } = await axios.get(apiUrl, { timeout: 120000 });
         
-        // Sesuaikan dengan struktur JSON yang baru
         const result = data.result;
-        const downloadUrl = result?.downloadUrl; // <-- Kunci diubah dari 'link' menjadi 'downloadUrl'
+        const downloadUrl = result?.downloadUrl;
+        const thumbnail = result?.thumbnail; // <-- Ambil thumbnail dari sini
         
-        if (result?.status === true && downloadUrl) {
-            return downloadUrl;
+        if (result?.status === true && downloadUrl && thumbnail) {
+            return { downloadUrl, thumbnail }; // <-- Kembalikan sebagai objek
         } else {
-            // Berikan pesan error yang lebih informatif jika ada dari API
-            throw new Error(result?.message || 'API merespon tapi tidak memberikan link download.');
+            throw new Error(result?.message || 'API merespon tapi tidak memberikan data lengkap (URL/Thumbnail).');
         }
     } catch (error) {
-        console.error("Error saat mengambil link download Spotify:", error.message);
-        throw new Error(`Gagal mendapatkan link download dari API. Coba lagi nanti.`);
+        console.error("Error saat mengambil data download Spotify:", error.message);
+        throw new Error(`Gagal mendapatkan data download dari API. Coba lagi nanti.`);
     }
 }
 // ===============================================================
@@ -60,14 +60,17 @@ export default async function playspo(sock, message, args, query, sender) {
     const messageKey = searchMsg.key;
     
     try {
+        // 1. Cari lagu untuk mendapatkan info dasar & URL Spotify
         const song = await searchSpotify(query);
 
-        await editMessage(sock, sender, `✅ Lagu ditemukan!\n*${song.title}* oleh *${song.artists}*.\n\nMeminta link download...`, messageKey);
+        await editMessage(sock, sender, `✅ Lagu ditemukan!\n*${song.title}* oleh *${song.artists}*.\n\nMeminta data download...`, messageKey);
         
-        const downloadUrl = await getSpotifyDownloadUrl(song.url);
+        // 2. Dapatkan URL download DAN thumbnail dari API download
+        const { downloadUrl, thumbnail } = await getSpotifyDownloadData(song.url);
         
-        await editMessage(sock, sender, `🔗 Link didapat! Mengunduh audio...`, messageKey);
+        await editMessage(sock, sender, `🔗 Data didapat! Mengunduh audio...`, messageKey);
         
+        // 3. Unduh audio buffer
         const { data: audioBuffer } = await axios.get(downloadUrl, {
             responseType: 'arraybuffer',
             timeout: 300000,
@@ -82,7 +85,8 @@ export default async function playspo(sock, message, args, query, sender) {
 
 *${config.WATERMARK}*`.trim();
 
-        await sendImage(sock, sender, song.thumbnail, caption, false, { quoted: message });
+        // 4. Kirim gambar menggunakan thumbnail yang didapat dari API download
+        await sendImage(sock, sender, thumbnail, caption, false, { quoted: message });
         await sendAudio(sock, sender, audioBuffer, { fileName: `${song.title}.mp3`, quoted: message });
         
         await editMessage(sock, sender, '✅ Selesai!', messageKey);
