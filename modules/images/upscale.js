@@ -86,7 +86,7 @@ export default async function upscale(sock, message, args, query, sender, extras
         saturationBoost = 1.1; // Sedikit boost warna biar gak kusam
     } 
     // KASUS 2: ANIME / VEKTOR (Deviasi rendah, warna blok solid)
-    else if (deviation < 75) {
+    else if (deviation < 50) {
         modeName = 'Anime/Vector Mode ⛩️';
         // Sharpening agresif untuk garis tepi (line art) yang tegas
         sharpParams = { sigma: 1.4, m1: 0.3, y2: 18, x1: 1.0 };
