@@ -34,14 +34,14 @@ export default async function upscale(sock, message, args, query, sender, extras
 
   try {
     // --------------------------------------------------------------------------------
-    // TAHAP 1: UPLOAD KE API AI (Untuk menaikkan resolusi dasar & hapus noise parah)
+    // TAHAP 1: UPLOAD KE API AI (Resolution Boost)
     // --------------------------------------------------------------------------------
     await H.editMessage(sock, jid, '🚀 Boosting Resolution (AI)...', messageKey);
     
     const form = new FormData();
     form.append('image', buffer, { filename: 'image.jpg', contentType: mimetype || 'image/jpeg' });
 
-    // API Upscaler (Sesuai kode originalmu)
+    // API Upscaler (Base Resolution Booster)
     const response = await axios.post(
       'https://szyrineapi.biz.id/api/img/upscale/imgupscaler',
       form,
@@ -69,35 +69,36 @@ export default async function upscale(sock, message, args, query, sender, extras
     // -- A. Analisis Data Gambar --
     // Hitung rata-rata kecerahan (0-255)
     const brightness = (stats.channels[0].mean + stats.channels[1].mean + stats.channels[2].mean) / 3;
-    // Hitung variasi pixel (Standard Deviation) -> Menentukan tekstur (Anime vs Real)
+    // Hitung variasi pixel (Standard Deviation) -> Menentukan tekstur
     const deviation = (stats.channels[0].stdev + stats.channels[1].stdev + stats.channels[2].stdev) / 3;
 
     let sharpParams = {};
     let saturationBoost = 1.0;
     let modeName = '';
 
-    // -- B. Tentukan Mode Otomatis --
+    // -- B. Tentukan Mode Otomatis (Revisi V3 Logic) --
     
     // KASUS 1: LOW LIGHT / MALAM (Brightness rendah)
     if (brightness < 60) {
         modeName = 'Night Mode 🌙';
-        // Sharpening halus saja, fokus kurangi noise di area hitam
+        // Sharpening halus, fokus kurangi noise background
         sharpParams = { sigma: 1.0, m1: 1.0, m2: 2.0, x1: 2, y2: 10, y3: 15 };
         saturationBoost = 1.1; // Sedikit boost warna biar gak kusam
     } 
-    // KASUS 2: ANIME / VEKTOR (Deviasi rendah, warna blok solid)
+    // KASUS 2: ANIME / VEKTOR FLAT (Deviasi < 50)
+    // Angka 50 dipilih supaya foto manusia (yang deviasinya 60-70an) gak nyasar kesini
     else if (deviation < 50) {
         modeName = 'Anime/Vector Mode ⛩️';
-        // Sharpening agresif untuk garis tepi (line art) yang tegas
+        // Sharpening agresif buat garis tegas
         sharpParams = { sigma: 1.4, m1: 0.3, y2: 18, x1: 1.0 };
         saturationBoost = 1.15; // Anime lebih hidup dengan warna vibrant
     } 
-    // KASUS 3: FOTO REAL / PEMANDANGAN (Deviasi tinggi, tekstur rumit)
+    // KASUS 3: FOTO REAL / MANUSIA / PEMANDANGAN (Default)
     else {
         modeName = 'Realistic Mode 📷';
-        // Sharpening moderat/aman supaya wajah tidak kasar
-        sharpParams = { sigma: 0.9, m1: 0.5, y2: 12, x1: 2.0 };
-        saturationBoost = 1.05; // Natural
+        // REVISI SOFT: Sharpening sangat tipis agar kulit tidak kasar/gosong
+        sharpParams = { sigma: 0.6, m1: 0.0, m2: 1.5, x1: 2.5, y2: 8, y3: 8 };
+        saturationBoost = 1.0; // Natural (tidak ada boost warna)
     }
 
     console.log(`[Upscale] Stats: Brightness=${brightness.toFixed(0)}, Dev=${deviation.toFixed(0)} | Mode: ${modeName}`);
@@ -106,13 +107,13 @@ export default async function upscale(sock, message, args, query, sender, extras
     imageBuffer = await pipeline
         // 1. Resize Cerdas (Downscaling aman buat WA)
         .resize({
-            width: metadata.width > metadata.height ? 1920 : 1080, // Max width 1920 (Landscape) atau 1080 (Portrait)
+            width: metadata.width > metadata.height ? 1920 : 1080, // Landscape 1920, Portrait 1080
             height: metadata.width > metadata.height ? 1080 : 1920,
             fit: 'inside', // Jaga aspek rasio
-            withoutEnlargement: true, // Jangan paksa gambar kecil jadi besar (pecah nanti)
+            withoutEnlargement: true,
             kernel: sharp.kernel.lanczos3 // Algoritma resize paling detail
         })
-        // 2. Atur Warna
+        // 2. Atur Warna (Saturasi)
         .modulate({
             saturation: saturationBoost
         })
@@ -121,8 +122,8 @@ export default async function upscale(sock, message, args, query, sender, extras
         // 4. Final Output dengan MozJPEG (High Quality Compression)
         .withMetadata({ density: 300 }) 
         .jpeg({
-            quality: 92, // Titik keseimbangan terbaik size vs quality
-            chromaSubsampling: '4:4:4', // WAJIB: Biar mata merah/teks merah gak pecah
+            quality: 92, // Kualitas 92% (Sweet spot size vs quality)
+            chromaSubsampling: '4:4:4', // WAJIB: Warna merah/biru tidak pecah
             mozjpeg: true,
             force: true
         })
