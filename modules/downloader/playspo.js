@@ -1,4 +1,4 @@
-// modules/downloaders/playspo.js (ENDPOINT BARU)
+// modules/downloaders/playspo.js (FIXED - artists is a string, not array)
 
 import { config } from '../../config.js';
 import { sendMessage, sendAudio, sendImage, editMessage, react } from '../../helper.js';
@@ -12,14 +12,14 @@ export const usage = `${config.BOT_PREFIX}playspo <judul lagu>`;
 export const aliases = ['spotify', 'findspo'];
 
 async function searchSpotify(query) {
-    // <-- ENDPOINT DIPERBARUI
     const { data } = await axios.get(`https://szyrineapi.biz.id/api/dl/spotify/search?q=${encodeURIComponent(query)}&limit=1&apikey=${config.SZYRINE_API_KEY}`);
     if (data?.status === 200 && Array.isArray(data.result) && data.result.length > 0) {
         const item = data.result[0];
         return {
              ...item,
              title: he.decode(item.title || 'N/A'),
-             artists: he.decode(item.artists.join(', ') || 'N/A'),
+             // <-- PERUBAHAN DI SINI: Langsung gunakan 'item.artists' karena sudah berupa string
+             artists: he.decode(item.artists || 'N/A'),
              album: { ...item.album, name: he.decode(item.album?.name || 'N/A') }
         };
     }
@@ -28,7 +28,6 @@ async function searchSpotify(query) {
 
 async function getSpotifyDownloadUrl(spotifyUrl) {
     try {
-        // <-- ENDPOINT DIPERBARUI
         const apiUrl = `https://szyrineapi.biz.id/api/dl/spotify/download?url=${encodeURIComponent(spotifyUrl)}&apikey=${config.SZYRINE_API_KEY}`;
         const { data } = await axios.get(apiUrl, { timeout: 120000 });
         
@@ -85,7 +84,7 @@ export default async function playspo(sock, message, args, query, sender) {
 
     } catch (err) {
         const errorMessage = `❌ Gagal: ${err.message}`;
-        console.error("[PLAY SPO] Error:", err.message);
+        console.error("[PLAY SPO] Error:", err); // Log error lengkap untuk debugging
         await editMessage(sock, sender, errorMessage, messageKey);
     }
 };
