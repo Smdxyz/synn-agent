@@ -1,4 +1,4 @@
-// connection.js (MODIFIED FOR SELF-RESTARTING)
+// connection.js — FINAL AGGRESSIVE RESTART VERSION
 
 import * as baileys from '@whiskeysockets/baileys';
 import pino from "pino";
@@ -19,9 +19,16 @@ export async function connectToWhatsApp() {
     version,
     auth: state,
     printQRInTerminal: false,
-    logger: pino({ level: "info" }),
-    keepAliveIntervalMs: 30000,
-    connectTimeoutMs: 60000, 
+    // Gunakan 'silent' untuk production agar log bersih, atau 'error' untuk debug kritikal
+    logger: pino({ level: "silent" }), 
+    
+    // Set timeout lebih pendek agar tidak menggantung terlalu lama saat error
+    keepAliveIntervalMs: 10000, 
+    emitOwnEvents: true,
+    retryRequestDelayMs: 250,
+    
+    // Browser identity membantu stabilitas koneksi
+    browser: ["Synn Agent", "Chrome", "20.0.04"], 
   });
 
   if (!sock.authState.creds.registered) {
@@ -34,7 +41,6 @@ export async function connectToWhatsApp() {
       console.log(`\n================================\n Kode Pairing Anda: ${code}\n================================\n`);
     } catch (error) {
       console.error("Gagal meminta kode pairing:", error);
-      // DIUBAH: Lemparkan error agar loop utama berhenti
       throw new Error("Pairing failed");
     }
   }
@@ -42,35 +48,41 @@ export async function connectToWhatsApp() {
   sock.ev.on("creds.update", saveCreds);
 
   sock.ev.on("connection.update", (update) => {
-    const { connection, lastDisconnect } = update;
+    const { connection, lastDisconnect, qr } = update;
 
     if (connection === "open") {
-      console.log("\n✅ Koneksi berhasil tersambung! Bot siap digunakan.\n");
-      if (!rl.closed) rl.close();
-    } else if (connection === "close") {
-      const statusCode = (lastDisconnect.error instanceof Boom) ? lastDisconnect.error.output.statusCode : 500;
+      console.log("\n✅ [STATUS] Koneksi Tersambung! Bot siap.");
+    } 
+    
+    else if (connection === "close") {
+      let reason = new Boom(lastDisconnect?.error)?.output.statusCode;
       
-      const isLogout = statusCode === baileys.DisconnectReason.loggedOut;
-      const isRestartRequired = statusCode === baileys.DisconnectReason.restartRequired;
+      // Jika errornya bukan Boom standard, ambil message-nya
+      if (!reason && lastDisconnect?.error) {
+          reason = lastDisconnect.error.message || "Unknown Error";
+      }
 
-      // ======================= PERUBAHAN UTAMA DI SINI =======================
-      if (isLogout) {
-        const reason = "Perangkat Telah Keluar (Logout)";
-        console.log(`❌ ${reason}. Hapus 'auth_info_baileys' dan scan ulang.`);
-        // DIUBAH: Lemparkan error spesifik untuk sinyal 'jangan restart'
-        sock.ev.emit('connection.logout', new Error(reason));
+      // === PENANGANAN BERBAGAI STATUS CODE ===
+      
+      // 1. KASUS LOGOUT (Sesi Dihapus/Tidak Valid)
+      if (reason === baileys.DisconnectReason.loggedOut) {
+        console.error(`❌ [FATAL] Perangkat Logout. Hapus folder 'auth_info_baileys' dan scan ulang.`);
+        // Emit logout agar bot.js berhenti total
+        sock.ev.emit('connection.logout', new Error("Logged Out"));
       } 
-      else if (isRestartRequired) {
-        const reason = lastDisconnect.error?.message || 'Restart Required';
-        console.error(`❌ Koneksi terputus. Alasan: ${reason}. Kode: ${statusCode}`);
-        // DIUBAH: Lemparkan error spesifik untuk sinyal 'restart'
-        sock.ev.emit('connection.restart', new Error(reason));
+      
+      // 2. KASUS RESTART REQUIRED (Biasanya 415)
+      else if (reason === baileys.DisconnectReason.restartRequired) {
+        console.log("🔄 [INFO] Server meminta restart session.");
+        sock.ev.emit('connection.restart', new Error("Restart Required"));
       }
+
+      // 3. KASUS SEMUA ERROR LAIN (428, 408, 500, 515, Stream Error, dll)
       else {
-        const reason = lastDisconnect.error?.message || 'Unknown Network Error';
-        console.log(`🔌 Koneksi terputus sementara (${reason}). Baileys akan mencoba menyambung ulang otomatis.`);
+        console.warn(`⚠️ [DISCONNECT] Terputus. Code: ${reason}. Memulai ulang koneksi...`);
+        // Kita paksa RESTART untuk semua jenis error ini agar socket dibersihkan total
+        sock.ev.emit('connection.restart', new Error(`Auto Restart (Code: ${reason})`));
       }
-      // =======================================================================
     }
   });
 

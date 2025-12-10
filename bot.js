@@ -1,4 +1,4 @@
-// bot.js (MODIFIED FOR SELF-RESTARTING)
+// bot.js — FINAL LOOP HANDLER
 
 import { connectToWhatsApp } from "./connection.js";
 import { handleMessage } from "./message.handler.js";
@@ -9,11 +9,27 @@ async function runBot() {
     try {
       const sock = await connectToWhatsApp();
 
-      // Pasang listener untuk event kustom kita
-      sock.ev.on('connection.restart', (error) => reject(error));
-      sock.ev.on('connection.logout', (error) => resolve(error)); // Resolve menandakan penghentian normal
+      // ===============================================
+      // HANDLER UNTUK SIGNAL DARI CONNECTION.JS
+      // ===============================================
 
-      // Pasang listener utama
+      // Jika terjadi error koneksi apapun, terima sinyal restart
+      sock.ev.on('connection.restart', (err) => {
+          // Tutup socket agar tidak ada event memory leak
+          sock.end(err); 
+          reject(err); // Reject akan memicu catch di fungsi main()
+      });
+
+      // Jika terjadi logout
+      sock.ev.on('connection.logout', (err) => {
+          sock.end(err);
+          resolve(err); // Resolve akan menghentikan loop while di main()
+      });
+
+      // ===============================================
+      // LISTENER UTAMA
+      // ===============================================
+
       sock.ev.on("messages.upsert", async (m) => {
         await handleMessage(sock, m);
       });
@@ -21,32 +37,33 @@ async function runBot() {
       sock.ev.on("call", async (call) => {
         await handleCall(sock, call[0]);
       });
+
     } catch (error) {
-        // Menangkap error dari connectToWhatsApp (misal: pairing gagal)
+        // Tangkap error inisialisasi awal
         reject(error);
     }
   });
 }
 
-// Fungsi utama yang mengontrol loop restart
 async function main() {
   let shouldRestart = true;
+  console.log("🚀 Memulai Synn Agent...");
 
   while (shouldRestart) {
     try {
       await runBot();
-      // Jika runBot() resolve (karena logout), kita hentikan loop
-      console.log("Proses dihentikan secara normal (logout). Bot tidak akan restart.");
+      // Jika runBot RESOLVE, berarti Logout atau berhenti normal
+      console.log("🛑 Bot berhenti secara normal.");
       shouldRestart = false;
     } catch (error) {
-      // Jika runBot() reject (karena restart required), loop akan berlanjut
-      console.error(`🔥 Terdeteksi sinyal restart: ${error.message}`);
-      console.log("Memulai ulang koneksi dalam 5 detik...");
-      await new Promise(r => setTimeout(r, 5000)); // Beri jeda 5 detik
+      // Jika runBot REJECT, berarti ada error koneksi (428, 515, dll)
+      console.error(`\n♻️  [AUTO-RESTART] Mendeteksi gangguan: ${error.message}`);
+      console.log("⏳  Menunggu 5 detik sebelum menyambung ulang...\n");
+      
+      await new Promise(r => setTimeout(r, 5000)); // Delay agar tidak spam server WA
       shouldRestart = true;
     }
   }
 }
 
-// Jalankan fungsi utama
 main();

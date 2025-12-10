@@ -28,7 +28,7 @@ export default async function(sock, message, args, query, sender, extras) {
         return sendMessage(sock, sender, '❌ Link YouTube yang Anda berikan tidak valid.', { quoted: message });
     }
 
-    if (!config.SZYRINE_API_KEY || config.SZYRINE_API_KEY === "SANN21") {
+    if (!config.SZYRINE_API_KEY || config.SZYRINE_API_KEY === "") {
         console.error("SZYRINE_API_KEY belum diatur di config.js");
         return sendMessage(sock, sender, '❌ API Key belum diatur oleh pemilik bot.');
     }
