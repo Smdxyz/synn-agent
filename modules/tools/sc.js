@@ -33,7 +33,7 @@ export default async function sc(sock, msg, args, query, sender, extras) {
     try {
         const fileContent = readFileSync(filePath, 'utf-8');
         
-        if (fileContent.length > 3000) {
+        if (fileContent.length > 4090) {
             // Jika teks terlalu panjang, kirim sebagai file .txt
             await sendDoc(
                 sock, 
