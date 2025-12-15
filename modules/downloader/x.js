@@ -19,7 +19,7 @@ export default async function x(sock, msg, args, query) {
 
     await handleApiDownloader(sock, msg, url, {
         platformName: 'X/Twitter',
-        apiUrl: 'https://szyrineapi.biz.id/api/dl/twitter', // <-- ENDPOINT DIPERBARUI
+        apiUrl: 'https://szyrineapi.biz.id/api/dl/x', // <-- ENDPOINT DIPERBARUI
         captionFormatter: (result) => {
             const user = result.author;
             return `*${user.name}* (@${user.screen_name})\n\n${result.full_text}\n\n❤️ ${result.favorite_count} | 🔁 ${result.retweet_count}\n\nDiunduh oleh ${config.botName}`;
