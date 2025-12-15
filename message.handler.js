@@ -1,15 +1,15 @@
-// message.handler.js (FINAL & SUPPORTS DYNAMIC SELF-RESPONSE)
+// message.handler.js (FINAL & CLEAN VERSION)
 
 import { readdirSync, statSync } from 'fs';
 import { join } from 'path';
 import { config } from './config.js';
-import { settings } from './settings.js'; // <-- IMPORT MODUL SETTINGS BARU
+import { settings } from './settings.js';
 
 // ---- PENYIMPANAN COMMAND & STATE ----
 export const commands = new Map();
 const waitState = new Map();
 
-// ... (Fungsi loadCommands tetap sama persis seperti di jawaban sebelumnya, tidak perlu diubah)
+// ---- FUNGSI UNTUK MEMUAT SEMUA COMMAND SECARA OTOMATIS (VERSI SUB-FOLDER) ----
 async function loadCommands() {
     const modulesPath = join(process.cwd(), 'modules');
     if (!readdirSync(process.cwd()).includes('modules')) {
@@ -17,6 +17,7 @@ async function loadCommands() {
         return;
     }
     const commandFolders = readdirSync(modulesPath);
+
     for (const folder of commandFolders) {
         const fullPath = join(modulesPath, folder);
         if (statSync(fullPath).isDirectory()) {
@@ -24,11 +25,18 @@ async function loadCommands() {
             for (const file of commandFiles) {
                 try {
                     const modulePath = join(fullPath, file);
-                    const commandModule = await import(`file://${modulePath}`);
+                    const originalModule = await import(`file://${modulePath}`);
+
+                    // [FIX] Buat salinan modul agar bisa dimodifikasi (menghindari error "not extensible")
+                    const commandModule = { ...originalModule };
+                    
+                    // Tambahkan path file ke salinan modul
                     commandModule.filePath = modulePath;
+
                     const commandName = file.replace('.js', '');
                     commands.set(commandName, commandModule);
                     console.log(`[LOADER] Berhasil memuat command: ${commandName} dari ${folder}`);
+
                     if (commandModule.aliases && Array.isArray(commandModule.aliases)) {
                         commandModule.aliases.forEach(alias => {
                             commands.set(alias, commandModule);
@@ -42,6 +50,8 @@ async function loadCommands() {
         }
     }
 }
+
+// Panggil fungsi loader saat aplikasi pertama kali berjalan
 loadCommands();
 
 
@@ -49,22 +59,18 @@ loadCommands();
 export const handleMessage = async (sock, m) => {
     const message = m.messages[0];
     
-    // ================== PERUBAHAN LOGIKA UTAMA DI SINI ==================
-    // 1. Cek dulu apakah ada message atau tidak
+    // Abaikan jika tidak ada konten pesan
     if (!message.message) return;
 
-    // 2. Ambil pengaturan saat ini
+    // [FITUR] Kontrol self-response secara dinamis
     const botSettings = settings.get();
-
-    // 3. Jika pesan berasal dari bot DAN fitur self-response NONAKTIF, maka abaikan.
     if (message.key.fromMe && !botSettings.allowSelfResponse) {
         return;
     }
-    // ===================================================================
 
     const sender = message.key.remoteJid;
 
-    // --- (Sisa kode dari sini ke bawah tetap sama persis, tidak perlu diubah) ---
+    // --- Logika Deteksi Pesan Cerdas (termasuk caption, tombol, dll) ---
     let body = '';
     const msg = message.message;
     if (msg.conversation) {
@@ -82,9 +88,11 @@ export const handleMessage = async (sock, m) => {
     } else if (msg.templateButtonReplyMessage) {
         body = msg.templateButtonReplyMessage.selectedId;
     }
+    
     const text = body; 
     if (!text) return; 
 
+    // --- Penanganan 'waitState' untuk command interaktif ---
     if (waitState.has(sender)) {
         const currentState = waitState.get(sender);
         if (Date.now() - currentState.timestamp > currentState.timeout) {
@@ -93,16 +101,21 @@ export const handleMessage = async (sock, m) => {
         }
         if (typeof currentState.handler === 'function') {
             const handled = currentState.handler(sock, message, text, currentState.context);
-            if (handled) waitState.delete(sender);
+            if (handled) {
+                waitState.delete(sender);
+            }
         }
         return;
     }
+
+    // --- Eksekusi Command Biasa ---
     const prefix = config.BOT_PREFIX;
     if (!text.startsWith(prefix)) return;
     const args = text.slice(prefix.length).trim().split(/ +/);
     const commandName = args.shift().toLowerCase();
     const commandModule = commands.get(commandName);
     const query = text.slice(prefix.length + commandName.length).trim();
+
     if (commandModule) {
         try {
             const extras = {
