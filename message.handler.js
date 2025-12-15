@@ -1,30 +1,31 @@
-// message.handler.js (FINAL & SUPPORTS INTERACTIVE MESSAGES + CAPTIONS)
+// message.handler.js (FINAL & SUPPORTS DYNAMIC SELF-RESPONSE)
 
 import { readdirSync, statSync } from 'fs';
 import { join } from 'path';
 import { config } from './config.js';
+import { settings } from './settings.js'; // <-- IMPORT MODUL SETTINGS BARU
 
 // ---- PENYIMPANAN COMMAND & STATE ----
 export const commands = new Map();
 const waitState = new Map();
 
-// ---- FUNGSI UNTUK MEMUAT SEMUA COMMAND SECARA OTOMATIS (VERSI SUB-FOLDER) ----
+// ... (Fungsi loadCommands tetap sama persis seperti di jawaban sebelumnya, tidak perlu diubah)
 async function loadCommands() {
     const modulesPath = join(process.cwd(), 'modules');
-    // Cek apakah folder modules ada, jika tidak, lewati untuk menghindari error
     if (!readdirSync(process.cwd()).includes('modules')) {
         console.warn("[LOADER] Folder 'modules' tidak ditemukan. Melewatkan pemuatan command.");
         return;
     }
     const commandFolders = readdirSync(modulesPath);
-
     for (const folder of commandFolders) {
         const fullPath = join(modulesPath, folder);
         if (statSync(fullPath).isDirectory()) {
             const commandFiles = readdirSync(fullPath).filter(file => file.endsWith('.js'));
             for (const file of commandFiles) {
                 try {
-                    const commandModule = await import(`file://${join(fullPath, file)}`);
+                    const modulePath = join(fullPath, file);
+                    const commandModule = await import(`file://${modulePath}`);
+                    commandModule.filePath = modulePath;
                     const commandName = file.replace('.js', '');
                     commands.set(commandName, commandModule);
                     console.log(`[LOADER] Berhasil memuat command: ${commandName} dari ${folder}`);
@@ -41,30 +42,38 @@ async function loadCommands() {
         }
     }
 }
-
-// Panggil fungsi loader saat aplikasi pertama kali berjalan
 loadCommands();
 
 
 // ---- HANDLER UTAMA (DENGAN DETEKSI PESAN CERDAS) ----
 export const handleMessage = async (sock, m) => {
     const message = m.messages[0];
-    if (!message.message || message.key.fromMe) return;
+    
+    // ================== PERUBAHAN LOGIKA UTAMA DI SINI ==================
+    // 1. Cek dulu apakah ada message atau tidak
+    if (!message.message) return;
+
+    // 2. Ambil pengaturan saat ini
+    const botSettings = settings.get();
+
+    // 3. Jika pesan berasal dari bot DAN fitur self-response NONAKTIF, maka abaikan.
+    if (message.key.fromMe && !botSettings.allowSelfResponse) {
+        return;
+    }
+    // ===================================================================
 
     const sender = message.key.remoteJid;
 
-    // --- LOGIKA DETEKSI PESAN CERDAS (VERSI PERBAIKAN DENGAN CAPTION SUPPORT) ---
-    // Variabel 'body' akan menampung teks perintah, dari mana pun asalnya.
+    // --- (Sisa kode dari sini ke bawah tetap sama persis, tidak perlu diubah) ---
     let body = '';
     const msg = message.message;
-
     if (msg.conversation) {
         body = msg.conversation;
     } else if (msg.extendedTextMessage) {
         body = msg.extendedTextMessage.text;
-    } else if (msg.imageMessage?.caption) { // <-- PERBAIKAN 1: BACA CAPTION GAMBAR
+    } else if (msg.imageMessage?.caption) {
         body = msg.imageMessage.caption;
-    } else if (msg.videoMessage?.caption) { // <-- PERBAIKAN 2: BACA CAPTION VIDEO
+    } else if (msg.videoMessage?.caption) {
         body = msg.videoMessage.caption;
     } else if (msg.buttonsResponseMessage) {
         body = msg.buttonsResponseMessage.selectedButtonId;
@@ -73,42 +82,31 @@ export const handleMessage = async (sock, m) => {
     } else if (msg.templateButtonReplyMessage) {
         body = msg.templateButtonReplyMessage.selectedId;
     }
-    // --------------------------------------------------------------------------
-    
-    const text = body; // 'text' adalah alias untuk 'body' untuk kompatibilitas
-    if (!text) return; // Jika tidak ada konten teks yang bisa diproses, abaikan.
+    const text = body; 
+    if (!text) return; 
 
-    // Logika waitState masih dipertahankan untuk command multi-langkah jika dibutuhkan
     if (waitState.has(sender)) {
         const currentState = waitState.get(sender);
         if (Date.now() - currentState.timestamp > currentState.timeout) {
             waitState.delete(sender);
             return sock.sendMessage(sender, { text: "Waktu pemilihan habis." });
         }
-        
         if (typeof currentState.handler === 'function') {
             const handled = currentState.handler(sock, message, text, currentState.context);
-            if (handled) {
-                waitState.delete(sender);
-            }
+            if (handled) waitState.delete(sender);
         }
         return;
     }
-
     const prefix = config.BOT_PREFIX;
     if (!text.startsWith(prefix)) return;
-
     const args = text.slice(prefix.length).trim().split(/ +/);
     const commandName = args.shift().toLowerCase();
     const commandModule = commands.get(commandName);
-    
     const query = text.slice(prefix.length + commandName.length).trim();
-
     if (commandModule) {
         try {
-            // ================== PERUBAHAN DI SINI ==================
             const extras = {
-                commands, // <-- TAMBAHKAN BARIS INI untuk melewatkan map 'commands'
+                commands,
                 set: (userId, command, options) => {
                     waitState.set(userId, {
                         command: command,
@@ -119,8 +117,6 @@ export const handleMessage = async (sock, m) => {
                     });
                 },
             };
-            // =======================================================
-            
             await commandModule.default(sock, message, args, query, sender, extras);
         } catch (error) {
             console.error(`[EXECUTION ERROR] Command: ${commandName}`, error);
