@@ -1,4 +1,4 @@
-// /modules/downloaders/x.js (ENDPOINT BARU)
+// /modules/downloaders/x.js (FIXED FOR NEW API STRUCTURE)
 
 import { config } from '../../config.js';
 import { handleApiDownloader } from '../../libs/downloaderHandler.js';
@@ -19,10 +19,13 @@ export default async function x(sock, msg, args, query) {
 
     await handleApiDownloader(sock, msg, url, {
         platformName: 'X/Twitter',
-        apiUrl: 'https://szyrineapi.biz.id/api/dl/x', // <-- ENDPOINT DIPERBARUI
+        apiUrl: 'https://szyrineapi.biz.id/api/dl/x', // Endpoint sudah benar
+        
+        // --- PERBAIKAN: Sesuaikan path data dengan respons JSON yang baru ---
         captionFormatter: (result) => {
-            const user = result.author;
-            return `*${user.name}* (@${user.screen_name})\n\n${result.full_text}\n\n❤️ ${result.favorite_count} | 🔁 ${result.retweet_count}\n\nDiunduh oleh ${config.botName}`;
+            const user = result.user;
+            const stats = result.stats;
+            return `*${user.name}* (@${user.screenName})\n\n${result.text}\n\n❤️ ${stats.likes} | 🔁 ${stats.retweets}\n\nDiunduh oleh ${config.botName}`;
         }
     });
 }

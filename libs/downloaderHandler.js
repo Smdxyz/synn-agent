@@ -1,4 +1,4 @@
-// /libs/downloaderHandler.js
+// /libs/downloaderHandler.js (FIXED FOR NEW API STRUCTURE)
 
 import axios from 'axios';
 import { config } from '../config.js';
@@ -31,7 +31,6 @@ export async function handleApiDownloader(sock, msg, url, options) {
 
     try {
         let processedUrl = url;
-        // Jalankan pre-processor jika ada (untuk Facebook)
         if (typeof urlPreProcessor === 'function') {
             await editProgress(`🔄 Mengonversi link ${platformName}...`);
             processedUrl = await urlPreProcessor(url);
@@ -46,11 +45,12 @@ export async function handleApiDownloader(sock, msg, url, options) {
 
         const { data: apiResponse } = await axios.get(apiUrl, {
             params: apiParams,
-            timeout: 60000 // 1 menit timeout
+            timeout: 60000
         });
 
-        if (apiResponse.status !== 200 || !apiResponse.result?.success) {
-            throw new Error(apiResponse.result?.message || 'Gagal mendapatkan data dari API.');
+        // --- PERBAIKAN 1: Cek keberadaan `result` saja, bukan `result.success` ---
+        if (apiResponse.status !== 200 || !apiResponse.result) {
+            throw new Error(apiResponse.result?.message || 'Gagal mendapatkan data dari API atau format tidak dikenali.');
         }
 
         const result = apiResponse.result;
@@ -63,7 +63,8 @@ export async function handleApiDownloader(sock, msg, url, options) {
 
         await editProgress(`✅ Data diterima! Total media: ${mediaItems.length}. Mengunduh...`);
 
-        const photos = mediaItems.filter(m => m.type === 'image');
+        // --- PERBAIKAN 2: Tambahkan 'photo' sebagai tipe gambar yang valid ---
+        const photos = mediaItems.filter(m => m.type === 'image' || m.type === 'photo');
         const videos = mediaItems.filter(m => m.type === 'video');
         let mediaSent = false;
 
@@ -76,7 +77,7 @@ export async function handleApiDownloader(sock, msg, url, options) {
                     const { buffer } = await fetchAsBufferWithMime(photo.url);
                     albumPayload.push({
                         image: buffer,
-                        caption: (index === 0) ? caption : '' // Caption hanya di gambar pertama
+                        caption: (index === 0) ? caption : ''
                     });
                 } catch (e) {
                      console.error(`[DOWNLOADER_HANDLER] Gagal unduh foto: ${photo.url}`, e);
@@ -96,7 +97,7 @@ export async function handleApiDownloader(sock, msg, url, options) {
                     const { buffer } = await fetchAsBufferWithMime(video.url);
                     const videoCaption = !mediaSent && index === 0 ? caption : '';
                     await sendVideo(sock, sender, buffer, videoCaption, { quoted: msg });
-                    await delay(1000); // Jeda antar video
+                    await delay(1000);
                 } catch (e) {
                      console.error(`[DOWNLOADER_HANDLER] Gagal unduh video: ${video.url}`, e);
                      await sendMessage(sock, sender, `❌ Gagal mengunduh video ${index + 1}.`, { quoted: msg });
