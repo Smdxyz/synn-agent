@@ -1,4 +1,4 @@
-// /modules/tools/sc.js
+// /modules/tools/sc.js (REVISED - Sends raw text directly)
 
 import { readFileSync } from 'fs';
 import { sendMessage, sendDoc } from '../../helper.js';
@@ -17,14 +17,13 @@ export default async function sc(sock, msg, args, query, sender, extras) {
         return sendMessage(sock, sender, `Silakan berikan nama command yang ingin dilihat.\n\n*Contoh:*\n\`${usage}\``, { quoted: msg });
     }
 
-    const { commands } = extras; // Ambil map 'commands' dari extras
+    const { commands } = extras;
     const commandModule = commands.get(commandName);
 
     if (!commandModule) {
         return sendMessage(sock, sender, `Command \`${commandName}\` tidak ditemukan.`, { quoted: msg });
     }
 
-    // Ambil path file yang sudah kita 'suntikkan' di message.handler.js
     const filePath = commandModule.filePath;
 
     if (!filePath) {
@@ -45,9 +44,8 @@ export default async function sc(sock, msg, args, query, sender, extras) {
                 { quoted: msg, caption: `Source code untuk \`${commandName}\`:` }
             );
         } else {
-            // Jika tidak, kirim sebagai teks biasa
-            const formattedContent = "```javascript\n" + fileContent + "\n```";
-            await sendMessage(sock, sender, formattedContent, { quoted: msg });
+            // [PERUBAHAN] Kirim langsung sebagai teks biasa tanpa formatting.
+            await sendMessage(sock, sender, fileContent, { quoted: msg });
         }
     } catch (error) {
         console.error(`[SC_ERROR] Gagal membaca file ${filePath}:`, error);
