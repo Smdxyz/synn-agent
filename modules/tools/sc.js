@@ -39,7 +39,7 @@ export default async function sc(sock, msg, args, query, sender, extras) {
                 sock, 
                 sender, 
                 Buffer.from(fileContent, 'utf-8'), 
-                `${commandName}.js.txt`, 
+                `${commandName}.js`, 
                 'text/plain', 
                 { quoted: msg, caption: `Source code untuk \`${commandName}\`:` }
             );

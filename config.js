@@ -1,9 +1,9 @@
 // config.js
 
 export const config = {
-  owner: "6287835486046",
+  owner: "6283125905220",
   botName: "Synn Bots",
-  mode: "public",
+  mode: "private",
   antiCall: true,
   antiSpamKeywords: ["pinjol", "pinjaman online"],
   BOT_PREFIX: ".",

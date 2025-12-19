@@ -62,13 +62,27 @@ export const handleMessage = async (sock, m) => {
     // Abaikan jika tidak ada konten pesan
     if (!message.message) return;
 
-    // [FITUR] Kontrol self-response secara dinamis
+    // Ambil pengaturan bot
     const botSettings = settings.get();
+
+    // [FITUR] Kontrol self-response secara dinamis
     if (message.key.fromMe && !botSettings.allowSelfResponse) {
         return;
     }
 
-    const sender = message.key.remoteJid;
+    // --- [FITUR BARU] Mode Self (Hanya Owner yang bisa memberi perintah) ---
+    // Dapatkan JID pengirim asli (berfungsi di grup dan PC)
+    const actualSender = message.key.participant || message.key.remoteJid;
+    const ownerJid = `${config.owner}@s.whatsapp.net`;
+    
+    // Jika selfMode aktif, bot hanya akan merespon perintah dari nomor owner.
+    if (botSettings.selfMode && actualSender !== ownerJid) {
+        return; // Abaikan semua pesan dari orang lain
+    }
+    // --- Akhir Fitur Baru ---
+
+
+    const sender = message.key.remoteJid; // JID untuk mengirim balasan (bisa grup/user)
 
     // --- Logika Deteksi Pesan Cerdas (termasuk caption, tombol, dll) ---
     let body = '';

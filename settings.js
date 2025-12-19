@@ -8,7 +8,8 @@ const settingsFilePath = path.join(process.cwd(), 'bot_settings.json');
 
 // Pengaturan default jika file tidak ada
 const defaultSettings = {
-    allowSelfResponse: false // Paling aman untuk default ke 'false' (nonaktif)
+    allowSelfResponse: false, // Paling aman untuk default ke 'false' (nonaktif)
+    selfMode: false           // [BARU] Jika 'true', hanya owner yang bisa menggunakan bot.
 };
 
 // Fungsi untuk memuat pengaturan dari file
@@ -16,7 +17,9 @@ function loadSettings() {
     try {
         if (fs.existsSync(settingsFilePath)) {
             const fileContent = fs.readFileSync(settingsFilePath, 'utf-8');
-            return JSON.parse(fileContent);
+            // Gabungkan default dengan yang ada, agar setting baru otomatis ditambahkan
+            const savedSettings = JSON.parse(fileContent);
+            return { ...defaultSettings, ...savedSettings };
         } else {
             // Jika file tidak ada, buat dengan pengaturan default
             fs.writeFileSync(settingsFilePath, JSON.stringify(defaultSettings, null, 2));
