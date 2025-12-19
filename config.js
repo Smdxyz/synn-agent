@@ -3,7 +3,7 @@
 export const config = {
   owner: "6283125905220",
   botName: "Synn Bots",
-  mode: "private",
+  mode: "public",
   antiCall: true,
   antiSpamKeywords: ["pinjol", "pinjaman online"],
   BOT_PREFIX: ".",
