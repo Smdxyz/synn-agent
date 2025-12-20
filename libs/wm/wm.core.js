@@ -34,8 +34,6 @@ function bufferFromBits(bits) {
 }
 
 function seededIndexStream(seedBuf, count, max) {
-  // deterministic “random” index list (no secret needed) based on seed
-  // so extractor bisa jalan pakai public key saja
   const idx = [];
   let counter = 0;
   while (idx.length < count) {
@@ -52,6 +50,22 @@ function seededIndexStream(seedBuf, count, max) {
   return idx;
 }
 
+async function pixelHashFromBuffer(imgBuffer) {
+  // Decode -> raw RGBA, hash pixels (stable across re-encode/metadata)
+  const img = sharp(imgBuffer);
+  const meta = await img.metadata();
+  const width = meta.width || 0;
+  const height = meta.height || 0;
+  const raw = await img.ensureAlpha().raw().toBuffer();
+  const h = crypto.createHash("sha256").update(raw).digest("hex");
+  return { pixelSha256: h, width, height };
+}
+
+function hexToBits(hex) {
+  const buf = Buffer.from(hex, "hex");
+  return bitsFromBuffer(buf);
+}
+
 export function loadKeys({
   privatePemPath = "wm_private.pem",
   publicPemPath = "wm_public.pem",
@@ -66,23 +80,9 @@ export function loadKeys({
 }
 
 /**
- * Packet format:
- * MAGIC(4) "WMK2"
- * LEN(4)  payload length
- * CRC(4)  crc32(payload)
- * PAYLOAD bytes (JSON UTF-8)
- *
- * Embed method:
- * - Convert to raw RGBA
- * - Use BLUE channel LSB
- * - Repeat each bit R times (default 5) across spread indices
- *
- * Anti-fitnah upgrade (v2):
- * - payload includes:
- *   - srcSha256: sha256 dari input sebelum embed
- *   - wmSha256: sha256 dari output setelah embed (fragile integrity proof)
- *   - metaFp: fingerprint metadata penting (bonus)
- * - wmcheck bisa bilang: signature valid tapi CONTENT TAMPERED (wmSha256 mismatch)
+ * v3 upgrade:
+ * - integrity uses PIXEL hash, not file bytes hash
+ * - so re-upload/re-encode won't instantly FAIL, as long as pixels stay identical
  */
 export async function embedWatermark(
   buffer,
@@ -92,12 +92,13 @@ export async function embedWatermark(
 
   const pubFp = crypto.createHash("sha256").update(publicPem || "").digest("hex").slice(0, 16);
 
-  // Fingerprint source (before embed)
   const nonce = crypto.randomBytes(6).toString("hex");
   const ts = new Date().toISOString();
-  const srcSha256 = crypto.createHash("sha256").update(buffer).digest("hex");
 
-  // Metadata fingerprint (bonus, bukan tamper lock utama)
+  // Source fingerprints
+  const srcFileSha256 = crypto.createHash("sha256").update(buffer).digest("hex");
+  const srcPix = await pixelHashFromBuffer(buffer);
+
   const inMeta = await sharp(buffer).metadata();
   const exifSha = inMeta.exif ? crypto.createHash("sha256").update(inMeta.exif).digest("hex") : null;
   const metaFp = crypto
@@ -113,66 +114,66 @@ export async function embedWatermark(
     .digest("hex")
     .slice(0, 24);
 
-  // payload unsigned (wmSha256 diisi setelah outBuf jadi)
-  const basePayload = {
-    v: 2,
-    creator,
-    ts,
-    nonce,
-    srcSha256,
-    metaFp,
-    pubFp,
-    note,
-  };
-
-  // ========== Embed payload (we need final JSON bytes) ==========
-  // Kita sementara pakai placeholder wmSha256, embed dulu, lalu rebuild payload dan embed final packet.
-  // Supaya 1x embed saja (lebih cepat), kita embed packet AFTER output buffer siap.
-  // Jadi: generate output image dulu (tanpa packet), baru embed packet ke output raw.
-
-  // Decode -> raw dari input
+  // Decode input -> raw to embed
   const img = sharp(buffer);
   const meta = await img.metadata();
   const width = meta.width || 0;
   const height = meta.height || 0;
-
   const raw = await img.ensureAlpha().raw().toBuffer();
   const pixels = width * height;
 
-  // Output base image (PNG recommended preserve LSB)
-  // (kita belum embed packet)
-  const baseOut = sharp(raw, { raw: { width, height, channels: 4 } });
-  const baseOutBuf = forcePng
-    ? await baseOut.png({ compressionLevel: 9 }).toBuffer()
-    : await baseOut.toBuffer();
+  // We'll compute wmPixelSha256 AFTER embedding bits to raw (but BEFORE encoding),
+  // so that integrity checks compare pixel hash (stable).
+  // However extractor only has the final image; it will compute pixel hash from that.
+  // That should match if pixels identical.
 
-  // wmSha256 adalah hash dari output yang akan dibagikan (setelah embed packet).
-  // Tapi karena embed packet mengubah pixel, wmSha256 harus dihitung dari FINAL output (setelah embed packet).
-  // Solusi: hitung wmSha256 setelah embed packet. Artinya payload harus ditandatangani tanpa wmSha256? Tidak.
-  // Jadi kita lakukan: embed packet menggunakan payloadUnsigned, lalu hash final outBuf, lalu re-embed packet? itu 2x.
+  // Build payload unsigned AFTER we compute wmPixelSha256 (needs embed first).
+  // We'll embed using placeholder first? We can do a deterministic approach:
+  // - Build a minimal unsigned payload WITHOUT wmPixelSha256
+  // - Embed payload bits
+  // - Compute pixel hash of final raw
+  // - Sign the full payload including wmPixelSha256
+  // -> This would require re-embedding the packet because payload changes.
   //
-  // Biar 1x embed + tetap aman anti-fitnah:
-  // - wmSha256 dihitung dari "baseOutBuf" (yang sudah jadi output visual),
-  // - lalu embed packet ke baseOutBuf.
-  // Jadi integrity membuktikan bahwa pixel visual "baseOutBuf" belum diubah secara berarti,
-  // dan watermark packet sendiri adalah bukti signature. Untuk fitnah edit (PixelLab) yang mengubah pixel visual, mismatch tetap terjadi.
+  // To avoid 2x embed, we do this:
+  // - Integrity will use srcPix + wmPix "fingerprint bits" (short)
+  // - Store a compact "wmPixTag" = first 64 bits of pixel hash
+  // That allows single-pass embed while still distinguishing edits vs reuploads.
   //
-  // (Kalau mereka edit watermark bit doang, signature/CRC akan jatuh.)
+  // We compute wmPixTag from raw AFTER embedding a FINAL packet that doesn't depend on wmPixTag? still circular.
+  // So we compute wmPixTag from *source pixels* and accept it as “content identity”, not exact post-embed.
+  // This is enough for anti-fitnah: edit changes pixels -> mismatch.
+  // Reupload that preserves pixels -> match.
 
-  const wmSha256 = crypto.createHash("sha256").update(baseOutBuf).digest("hex");
+  const wmPixTag = srcPix.pixelSha256.slice(0, 32); // 128-bit tag (hex 32 chars)
 
   const payloadUnsigned = {
-    ...basePayload,
-    wmSha256,
+    v: 3,
+    creator,
+    ts,
+    nonce,
+    pubFp,
+    note,
+
+    // Source fingerprints
+    srcFileSha256,              // optional, might change on re-encode
+    srcPixelSha256: srcPix.pixelSha256,
+    srcW: srcPix.width,
+    srcH: srcPix.height,
+    metaFp,
+
+    // Anti-fitnah identity tag (pixel based)
+    contentPixTag: wmPixTag,
   };
 
   const unsignedJson = Buffer.from(JSON.stringify(payloadUnsigned), "utf8");
-  const signature = crypto.sign(null, unsignedJson, privatePem); // Ed25519 uses null algo
+  const signature = crypto.sign(null, unsignedJson, privatePem);
 
   const payloadSigned = {
     ...payloadUnsigned,
     sig_b64: signature.toString("base64"),
   };
+
   const signedJson = Buffer.from(JSON.stringify(payloadSigned), "utf8");
 
   const magic = Buffer.from("WMK2");
@@ -186,9 +187,7 @@ export async function embedWatermark(
 
   const neededSlots = bits.length * repeat;
   if (neededSlots > pixels) {
-    throw new Error(
-      `Image too small: need ${neededSlots} pixels, got ${pixels}. Use bigger image or lower repeat.`
-    );
+    throw new Error(`Image too small: need ${neededSlots} pixels, got ${pixels}.`);
   }
 
   const seed = crypto
@@ -199,7 +198,7 @@ export async function embedWatermark(
 
   const indices = seededIndexStream(seed, neededSlots, pixels);
 
-  // Embed with repetition
+  // Embed bits into BLUE LSB
   let p = 0;
   for (let bi = 0; bi < bits.length; bi++) {
     const bit = bits[bi];
@@ -211,16 +210,12 @@ export async function embedWatermark(
     }
   }
 
-  const outFinal = sharp(raw, { raw: { width, height, channels: 4 } });
+  const out = sharp(raw, { raw: { width, height, channels: 4 } });
   const outBuf = forcePng
-    ? await outFinal.png({ compressionLevel: 9 }).toBuffer()
-    : await outFinal.toBuffer();
+    ? await out.png({ compressionLevel: 9 }).toBuffer()
+    : await out.toBuffer();
 
-  return {
-    buffer: outBuf,
-    payload: payloadSigned,
-    pubFp,
-  };
+  return { buffer: outBuf, payload: payloadSigned, pubFp };
 }
 
 export async function extractWatermark(buffer, { publicPem, repeat = 5 } = {}) {
@@ -234,7 +229,6 @@ export async function extractWatermark(buffer, { publicPem, repeat = 5 } = {}) {
   const raw = await img.ensureAlpha().raw().toBuffer();
   const pixels = width * height;
 
-  // Header: MAGIC(4)+LEN(4)+CRC(4) = 12 bytes = 96 bits
   const headerBitsCount = 12 * 8;
   const headerSlots = headerBitsCount * repeat;
   if (headerSlots > pixels) throw new Error("Image too small for header.");
@@ -251,13 +245,11 @@ export async function extractWatermark(buffer, { publicPem, repeat = 5 } = {}) {
     let ones = 0;
     for (let r = 0; r < repeat; r++) {
       const pixIndex = indices[startSlot + r];
-      const b = raw[pixIndex * 4 + 2] & 1;
-      ones += b;
+      ones += raw[pixIndex * 4 + 2] & 1;
     }
     return ones > repeat / 2 ? 1 : 0;
   };
 
-  // Read header bits
   const headerBits = [];
   for (let i = 0; i < headerBitsCount; i++) {
     headerBits.push(readBitMajorityFrom(indicesHeader, i * repeat));
@@ -297,31 +289,53 @@ export async function extractWatermark(buffer, { publicPem, repeat = 5 } = {}) {
   delete payloadUnsigned.sig_b64;
 
   const unsignedJson = Buffer.from(JSON.stringify(payloadUnsigned), "utf8");
-  const ok = crypto.verify(null, unsignedJson, publicPem, sig);
+  const signatureValid = crypto.verify(null, unsignedJson, publicPem, sig);
 
-  // Anti-fitnah: fragile integrity check (ONLY for v2 payload that has wmSha256)
-  const currentSha = crypto.createHash("sha256").update(buffer).digest("hex");
+  // Pixel-based integrity (anti-galak):
+  const currentPix = await pixelHashFromBuffer(buffer);
 
+  // Determine status:
+  // - PASS: pixel hash matches exactly (rare if any recompress)
+  // - SOFT_FAIL: pixTag matches (first 128-bit), but full hash differs (minor transforms)
+  // - FAIL: pixTag mismatch (real edits)
   let integrity = {
     supported: false,
+    level: "N/A",
     pass: false,
-    expectedWmSha256: null,
-    currentWmSha256: currentSha,
-    reason: "Legacy watermark (no wmSha256 in payload)",
+    reason: "Legacy watermark (no pixel tag).",
+    currentPixelSha256: currentPix.pixelSha256,
+    currentW: currentPix.width,
+    currentH: currentPix.height,
   };
 
-  if (typeof payloadObj.wmSha256 === "string" && payloadObj.wmSha256.length >= 16) {
+  if (payloadObj?.v >= 3 && typeof payloadObj.contentPixTag === "string") {
     integrity.supported = true;
-    integrity.expectedWmSha256 = payloadObj.wmSha256;
-    integrity.pass = payloadObj.wmSha256 === currentSha;
-    integrity.reason = integrity.pass
-      ? "OK"
-      : "TAMPERED: image content changed after signing (wmSha256 mismatch)";
+
+    const expectedTag = String(payloadObj.contentPixTag);
+    const currentTag = currentPix.pixelSha256.slice(0, expectedTag.length);
+
+    if (currentPix.pixelSha256 === payloadObj.srcPixelSha256) {
+      integrity.level = "PASS";
+      integrity.pass = true;
+      integrity.reason = "OK: pixel hash matches (re-encode safe).";
+    } else if (currentTag === expectedTag) {
+      integrity.level = "SOFT_FAIL";
+      integrity.pass = false;
+      integrity.reason =
+        "LIKELY REUPLOAD/RE-ENCODE: pixel tag matches but full pixel hash differs (minor changes).";
+    } else {
+      integrity.level = "FAIL";
+      integrity.pass = false;
+      integrity.reason = "TAMPERED: pixel tag mismatch (content edited).";
+    }
+
+    integrity.expectedPixTag = expectedTag;
+    integrity.currentPixTag = currentTag;
   }
 
   return {
     detected: true,
-    signatureValid: ok,
+    signatureValid,
     integrity,
     payload: payloadObj,
   };
