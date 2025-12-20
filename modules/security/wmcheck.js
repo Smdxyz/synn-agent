@@ -3,24 +3,25 @@ import { downloadMedia } from "../../helper.js";
 import { loadKeys, extractWatermark } from "../../libs/wm/wm.core.js";
 
 /**
- * WA-safe labeling:
+ * WA-safe labeling (final):
  * - ORIGINAL: signature valid + PASS
  * - REUPLOAD (RE-ENCODE): SOFT_FAIL without resize
  * - DERIVATIVE (RESIZED/UPSCALED): SOFT_FAIL with resize
- * - REUPLOAD (WA RE-ENCODE): FAIL but signature valid + no resize (common on WhatsApp pipelines)
- * - EDITED (TAMPERED): FAIL with resize OR signature invalid
+ * - REUPLOAD (WA RE-ENCODE): FAIL but signature valid + no resize (common on WhatsApp)
+ * - DERIVATIVE + EDITED: FAIL with resize
+ * - INVALID SIGNATURE: signature invalid
  *
- * This avoids "too harsh" flags for WA re-encode that changes pixels slightly.
+ * Also overrides displayed "reason" to avoid contradictory output.
  */
 function buildStatus(res) {
   const p = res?.payload || {};
   const i = res?.integrity || {};
 
-  // Legacy watermark (no integrity signals)
   if (!i.supported) {
     return {
       status: "LEGACY",
       detail: i.reason || "Legacy watermark: no integrity signals available.",
+      showReason: i.reason || "Legacy watermark",
     };
   }
 
@@ -32,26 +33,29 @@ function buildStatus(res) {
   const hasDims = srcW > 0 && srcH > 0 && curW > 0 && curH > 0;
   const resized = hasDims && (srcW !== curW || srcH !== curH);
 
-  // If signature invalid, always be strict.
   if (!res?.signatureValid) {
     return {
       status: "INVALID SIGNATURE",
       detail: "Signature invalid. Treat as untrusted/forged or corrupted payload.",
+      showReason: "INVALID SIGNATURE",
     };
   }
 
-  // PASS: exact pixel match
   if (i.level === "PASS") {
     if (resized) {
       return {
         status: "DERIVATIVE (RESIZED)",
         detail: `Size changed ${srcW}x${srcH} → ${curW}x${curH}, but pixel hash matched.`,
+        showReason: "OK (pixel match)",
       };
     }
-    return { status: "ORIGINAL", detail: "Pixel hash matched exactly." };
+    return {
+      status: "ORIGINAL",
+      detail: "Pixel hash matched exactly.",
+      showReason: "OK (pixel match)",
+    };
   }
 
-  // SOFT_FAIL: tag matches, full hash differs (typical re-encode / minor transforms)
   if (i.level === "SOFT_FAIL") {
     if (resized) {
       return {
@@ -59,40 +63,35 @@ function buildStatus(res) {
         detail:
           `Likely resize/upscale/downscale. Size ${srcW}x${srcH} → ${curW}x${curH}. ` +
           "Pixel tag matched (same content identity), but pixels differ due to transform.",
+        showReason: "LIKELY TRANSFORM (tag match)",
       };
     }
     return {
       status: "REUPLOAD (RE-ENCODE)",
       detail:
         "Pixel tag matched (same content identity), but full pixel hash differs (likely save ulang / re-encode).",
+      showReason: "LIKELY REUPLOAD/RE-ENCODE (tag match)",
     };
   }
 
-  // FAIL: tag mismatch
-  // WhatsApp sometimes causes pixel-level differences even without edits.
-  // WA-safe policy: if signature is valid AND there is NO resize, we label it as WA re-encode
-  // instead of accusing tampering.
-  if (i.level === "FAIL") {
-    if (!resized) {
-      return {
-        status: "REUPLOAD (WA RE-ENCODE)",
-        detail:
-          "Signature valid and dimensions unchanged. WhatsApp pipelines may alter pixels subtly " +
-          "during resend/preview. Marked as reupload instead of tampered.",
-      };
-    }
-
+  // i.level === "FAIL"
+  if (!resized) {
+    // WhatsApp is known to subtly alter pixels even on resend/preview.
     return {
-      status: "DERIVATIVE + EDITED",
+      status: "REUPLOAD (WA RE-ENCODE)",
       detail:
-        `Size changed ${srcW}x${srcH} → ${curW}x${curH} AND pixel tag mismatch. ` +
-        "This indicates resizing/upscaling + content edits (tampered).",
+        "Signature valid and dimensions unchanged. WhatsApp pipelines may alter pixels subtly " +
+        "during resend/preview. Marked as reupload instead of tampered.",
+      showReason: "WA RE-ENCODE SUSPECTED (dims unchanged)",
     };
   }
 
   return {
-    status: "UNKNOWN",
-    detail: i.reason || "Unknown integrity state.",
+    status: "DERIVATIVE + EDITED",
+    detail:
+      `Size changed ${srcW}x${srcH} → ${curW}x${curH} AND pixel tag mismatch. ` +
+      "This indicates resizing/upscaling + content edits (tampered).",
+    showReason: "TAMPERED (resize + tag mismatch)",
   };
 }
 
@@ -124,6 +123,9 @@ export default async function (sock, message, args, query, sender) {
         ? `size: ${p.srcW}x${p.srcH} → ${i.currentW}x${i.currentH}`
         : "size: -";
 
+    // Use override reason to avoid contradictions
+    const reasonToShow = st.showReason || i.reason || "-";
+
     const text =
       `🔎 WM CHECK\n` +
       `detected: YES\n` +
@@ -137,7 +139,7 @@ export default async function (sock, message, args, query, sender) {
       `pubFp (payload): ${p.pubFp || "-"}\n` +
       `nonce: ${p.nonce || "-"}\n` +
       `integrityLevel: ${i.level || "N/A"}\n` +
-      `reason: ${i.reason || "-"}\n` +
+      `reason: ${reasonToShow}\n` +
       `srcPixelSha256: ${p.srcPixelSha256 ? String(p.srcPixelSha256).slice(0, 16) + "…" : "-"}\n` +
       `currentPixelSha256: ${
         i.currentPixelSha256 ? String(i.currentPixelSha256).slice(0, 16) + "…" : "-"
