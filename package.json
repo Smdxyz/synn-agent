@@ -23,7 +23,10 @@
     "he": "^1.2.0",
     "pino": "^9.5.0",
     "sharp": "^0.33.4",
-    "tough-cookie": "^4.1.4"
+    "tough-cookie": "^4.1.4",
+    "png-chunks-extract": "^1.0.0",
+    "png-chunks-encode": "^1.0.0",
+    "png-chunk-text": "^1.0.0"
   },
   "engines": {
     "node": ">=19.0.0"

@@ -6,8 +6,6 @@ import { loadKeys, embedWatermark } from "../../libs/wm/wm.core.js";
 export default async function (sock, message, args, query, sender) {
   try {
     const creator = (args?.[0] || config.botName || "unknown").trim();
-
-    // ✅ PENTING: helper lu expect "message" langsung, BUKAN { message }
     const media = await downloadMedia(message);
 
     if (!media?.buffer) {
@@ -18,39 +16,32 @@ export default async function (sock, message, args, query, sender) {
       );
     }
 
-    const { publicPem, privatePem, pubFp } = loadKeys({
-      privatePemPath: "wm_private.pem",
-      publicPemPath: "wm_public.pem",
-    });
+    const { publicPem, privatePem, pubFp } = loadKeys();
 
-    const note = `bot=${config.botName || "-"};wm=${config.WATERMARK || "-"}`;
-
-    // Embed invisible signed WM (PNG supaya awet)
     const out = await embedWatermark(media.buffer, {
       creator,
-      note,
+      note: `bot=${config.botName || "-"};mode=wm`,
       privatePem,
       publicPem,
       repeat: 5,
       forcePng: true,
     });
 
-    const cap =
+    const caption =
       `✅ WM embedded\n` +
       `creator: ${creator}\n` +
       `pubFp: ${pubFp}\n` +
-      `ts (signed): ${out.payload?.ts || "-"}\n` +
-      `note: ${note}`;
+      `ts (signed): ${out.payload.ts}`;
 
     await sock.sendMessage(
       sender,
-      { image: out.buffer, caption: cap },
+      { image: out.buffer, caption },
       { quoted: message }
     );
   } catch (e) {
     await sock.sendMessage(
       sender,
-      { text: `❌ WM error: ${e?.message || e}` },
+      { text: `❌ WM error: ${e.message}` },
       { quoted: message }
     );
   }
