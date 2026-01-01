@@ -1,7 +1,7 @@
 // config.js
 
 export const config = {
-  owner: "6283125905220",
+  owner: "149804483104935",
   botName: "Synn Bots",
   mode: "public",
   antiCall: true,
