@@ -1,4 +1,4 @@
-// helper.js — FINAL VERSION (FIXED 'pollPixnovaJob' & 'delay' EXPORT)
+// helper.js — FINAL VERSION (FIXED 'sendDoc' & 'pollPixnovaJob' & 'delay' EXPORT)
 
 import got from 'got';
 import { 
@@ -29,28 +29,28 @@ export const sendMessage = async (sock, jid, text, options = {}) => sock.sendMes
 export { sendMessage as sendText };
 export const sendImage = async (sock, jid, urlOrBuffer, caption = '', viewOnce = false, options = {}) => {
   const image = Buffer.isBuffer(urlOrBuffer) ? urlOrBuffer : { url: urlOrBuffer };
-  return sock.sendMessage(jid, { image, caption, viewOnce }, options);
+  return sock.sendMessage(jid, { image, caption, viewOnce, ...options });
 };
 export const sendAudio = async (sock, jid, urlOrBuffer, options = {}) => {
   const audio = Buffer.isBuffer(urlOrBuffer) ? urlOrBuffer : { url: urlOrBuffer };
-  return sock.sendMessage(jid, { audio, mimetype: options.mimetype || 'audio/mpeg', ptt: !!options.ptt }, options);
+  return sock.sendMessage(jid, { audio, mimetype: options.mimetype || 'audio/mpeg', ptt: !!options.ptt, ...options });
 };
 export const sendVideo = async (sock, jid, urlOrBuffer, caption = '', options = {}) => {
   const video = Buffer.isBuffer(urlOrBuffer) ? urlOrBuffer : { url: urlOrBuffer };
-  return sock.sendMessage(jid, { video, caption, mimetype: options.mimetype || 'video/mp4' }, options);
+  return sock.sendMessage(jid, { video, caption, mimetype: options.mimetype || 'video/mp4', ...options });
 };
 export const sendGif = async (sock, jid, urlOrBuffer, caption = '', options = {}) => {
   const video = Buffer.isBuffer(urlOrBuffer) ? urlOrBuffer : { url: urlOrBuffer };
-  return sock.sendMessage(jid, { video, caption, gifPlayback: true }, options);
+  return sock.sendMessage(jid, { video, caption, gifPlayback: true, ...options });
 };
 
-// ============================ [INI YANG DIPERBAIKI] ============================
+// ============================ [INI YANG DIPERBAIKI SECARA BENAR] ============================
 export const sendDoc = async (sock, jid, urlOrBuffer, fileName = 'file', mimetype = 'application/pdf', options = {}) => {
-  // Logika diperbaiki agar bisa menerima Buffer secara langsung
   const document = Buffer.isBuffer(urlOrBuffer) ? urlOrBuffer : { url: urlOrBuffer };
+  // Gabungkan 'options' (seperti 'caption' dan 'quoted') ke dalam objek pesan utama
   return sock.sendMessage(jid, { document, fileName, mimetype, ...options });
 };
-// ==============================================================================
+// =========================================================================================
 
 // ============================ PENGIRIM PESAN TIPE KHUSUS ============================
 
@@ -139,7 +139,7 @@ export const sendAlbum = async (sock, jid, albumPayload = [], options = {}) => {
 };
 
 export const sendPoll = async (sock, jid, name, values, options = {}) => {
-  return sock.sendMessage(jid, { poll: { name, values, selectableCount: 1 } }, options);
+  return sock.sendMessage(jid, { poll: { name, values, selectableCount: 1 }, ...options });
 };
 export const sendContact = async (sock, jid, fullName, org, waid, options = {}) => {
     const vcard = 'BEGIN:VCARD\n' + 'VERSION:3.0\n' + `FN:${fullName}\n` + `ORG:${org}\n` + `TEL;type=CELL;type=VOICE;waid=${waid}:+${waid}\n` + 'END:VCARD';
