@@ -11,10 +11,23 @@ if (!fs.existsSync(dbPath)) {
 const userFilePath = path.join(dbPath, 'users.json');
 const codeFilePath = path.join(dbPath, 'codes.json');
 
-// Helper untuk baca/tulis file
+// Helper untuk baca/tulis file (dengan perbaikan)
 const readFile = (filePath) => {
-    if (!fs.existsSync(filePath)) return {};
-    return JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+    if (!fs.existsSync(filePath)) {
+        return {};
+    }
+    try {
+        const fileContent = fs.readFileSync(filePath, 'utf-8');
+        // [PERBAIKAN] Cek apakah file kosong atau hanya berisi spasi
+        if (!fileContent.trim()) {
+            return {}; // Return objek kosong jika file tidak ada isinya
+        }
+        // [AMAN] Hanya parse jika ada konten
+        return JSON.parse(fileContent);
+    } catch (e) {
+        console.error(`[Database] Gagal membaca atau parse file JSON: ${filePath}`, e);
+        return {}; // Kembalikan objek kosong jika terjadi error parse
+    }
 };
 
 const writeFile = (filePath, data) => {
