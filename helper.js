@@ -43,10 +43,14 @@ export const sendGif = async (sock, jid, urlOrBuffer, caption = '', options = {}
   const video = Buffer.isBuffer(urlOrBuffer) ? urlOrBuffer : { url: urlOrBuffer };
   return sock.sendMessage(jid, { video, caption, gifPlayback: true }, options);
 };
+
+// ============================ [INI YANG DIPERBAIKI] ============================
 export const sendDoc = async (sock, jid, urlOrBuffer, fileName = 'file', mimetype = 'application/pdf', options = {}) => {
+  // Logika diperbaiki agar bisa menerima Buffer secara langsung
   const document = Buffer.isBuffer(urlOrBuffer) ? urlOrBuffer : { url: urlOrBuffer };
-  return sock.sendMessage(jid, { document, fileName, mimetype }, options);
+  return sock.sendMessage(jid, { document, fileName, mimetype, ...options });
 };
+// ==============================================================================
 
 // ============================ PENGIRIM PESAN TIPE KHUSUS ============================
 
