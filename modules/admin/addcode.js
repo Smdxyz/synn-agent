@@ -6,12 +6,26 @@ import { v4 as uuidv4 } from 'uuid';
 
 export default async function(sock, msg, args) {
     const sender = msg.key.remoteJid;
-    const senderId = msg.key.participant || sender;
-    const ownerJid = `${config.owner}@s.whatsapp.net`;
+    // Ambil ID pengirim yang akurat (baik dari grup maupun PC)
+    const senderId = msg.key.participant || msg.key.remoteJid;
+    
+    // --- LOGIKA PENGECEKAN OWNER YANG LEBIH KUAT ---
+    
+    // 1. Bersihkan ID pengirim (hapus @s.whatsapp.net dan kode device seperti :1)
+    const senderNum = senderId.split('@')[0].split(':')[0];
+    
+    // 2. Ambil nomor owner dari config dan pastikan string
+    const ownerNum = config.owner.toString();
 
-    if (senderId !== ownerJid) {
-        return H.sendMessage(sock, sender, '❌ Perintah ini hanya untuk Owner.', { quoted: msg });
+    // 3. Debugging: Tampilkan di terminal siapa yang mencoba akses
+    console.log(`[AUTH CHECK] Sender: ${senderNum} | Owner Config: ${ownerNum}`);
+
+    // 4. Bandingkan angkanya saja
+    if (senderNum !== ownerNum) {
+        return H.sendMessage(sock, sender, `❌ Akses Ditolak!\n\nNomor Anda terdeteksi: *${senderNum}*\nOwner terdaftar: *${ownerNum}*\n\nSilakan ubah nomor di file config.js agar sama.`, { quoted: msg });
     }
+
+    // --- BATAS PENGECEKAN OWNER ---
 
     // .addcode <points> <limit> [vip]
     const points = parseInt(args[0]);
@@ -30,7 +44,7 @@ export default async function(sock, msg, args) {
         used: 0,
         vipOnly: vipOnly,
         claimedBy: [],
-        createdBy: senderId
+        createdBy: senderNum
     };
 
     db.addCode(newCode);
