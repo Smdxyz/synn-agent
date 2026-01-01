@@ -12,11 +12,10 @@ export function generateStudentData() {
     const firstName = faker.person.firstName('male');
     const lastName = faker.person.lastName('male');
     
-    // Student ID: 5964xxx (7 digit total, 3 digit terakhir random)
+    // Student ID: 5964xxx
     const studentId = `5964${Math.floor(100 + Math.random() * 900)}`;
     
     // Tanggal Lahir: Tahun 2003 atau 2004
-    // Format tanggal lahir di dokumen asli: "D MMMM YYYY" (tanpa nol di depan tanggal, misal 8 February 2003)
     const birthYear = Math.random() < 0.5 ? 2003 : 2004;
     const birthDate = faker.date.birthdate({ min: birthYear, max: birthYear, mode: 'year' });
 
@@ -37,13 +36,9 @@ export async function generateDocument(studentData) {
 
     let htmlContent = fs.readFileSync(templatePath, 'utf-8');
     
-    // --- [PERBAIKAN TANGGAL HARDCODE SESUAI PERMINTAAN] ---
-    // Tanggal Surat disamakan persis dengan contoh sukses: "10 July 2025"
+    // --- [1. CONFIG TANGGAL (HARDCODED)] ---
     const fixedLetterDate = "10 July 2025";
-    // Tahun Akademik disamakan persis: "2025-2026"
     const fixedAcademicYear = "2025-2026";
-
-    // Format tanggal lahir (Locale Inggris, misal: 25 April 2004)
     const formattedDob = moment(studentData.birthDate).locale('en').format('D MMMM YYYY');
 
     const replacements = {
@@ -57,6 +52,16 @@ export async function generateDocument(studentData) {
     for (const [key, value] of Object.entries(replacements)) {
         htmlContent = htmlContent.split(key).join(value);
     }
+
+    // --- [2. PERBAIKAN: HAPUS GARIS/BAYANGAN MENGGANGGU] ---
+    // Kita hapus CSS 'body > div' yang ada box-shadow nya
+    htmlContent = htmlContent.replace(
+        /body\s*>\s*div\s*\{[\s\S]*?\}/g, 
+        'body > div { box-shadow: none !important; margin: 0 !important; border: none !important; }'
+    );
+    
+    // Hapus juga background abu-abu jika ada di body
+    htmlContent = htmlContent.replace('background-color', 'x-bg-color'); 
     
     let browser;
     try {
@@ -71,26 +76,24 @@ export async function generateDocument(studentData) {
         });
         const page = await browser.newPage();
         
-        // [PERBAIKAN LAYOUT 1:1]
-        // Kita set resolusi tinggi agar posisi elemen absolute tidak bergeser
-        await page.setViewport({ width: 1240, height: 1754, deviceScaleFactor: 1 });
+        // Ukuran A4 (Lebar x Tinggi)
+        await page.setViewport({ width: 794, height: 1123, deviceScaleFactor: 1 });
 
         await page.setContent(htmlContent, { waitUntil: 'networkidle0' });
         
-        // Emulate media type 'print' agar CSS @media print di template bekerja sempurna
+        // Mode Print
         await page.emulateMediaType('print');
 
         const pdfBuffer = await page.pdf({
             format: 'A4',
-            printBackground: true, // Wajib true
+            printBackground: true, 
             margin: {
                 top: '0px',
                 right: '0px',
                 bottom: '0px',
                 left: '0px'
             },
-            pageRanges: '1', // Paksa 1 Halaman
-            // Prefer CSS Page Size agar ngikutin style @page dari HTML aslinya (jika ada)
+            pageRanges: '1',
             preferCSSPageSize: true 
         });
 
