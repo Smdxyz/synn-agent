@@ -36,32 +36,59 @@ export async function generateDocument(studentData) {
 
     let htmlContent = fs.readFileSync(templatePath, 'utf-8');
     
-    const academicYear = `${new Date().getFullYear()}-${new Date().getFullYear() + 1}`;
+    // Logic tahun akademik (Contoh: Juli 2025 -> 2025-2026)
+    const currentYear = new Date().getFullYear();
+    const academicYear = `${currentYear}-${currentYear + 1}`;
     
+    // Format tanggal surat (Contoh: 10 July 2025)
+    const letterDate = moment().tz('Europe/Amsterdam').locale('en').format('D MMMM YYYY');
+
     const replacements = {
         '{{NAMA_LENGKAP}}': studentData.fullName,
-        '{{TANGGAL_LAHIR}}': moment(studentData.birthDate).format('DD MMMM YYYY'),
+        '{{TANGGAL_LAHIR}}': moment(studentData.birthDate).locale('en').format('D MMMM YYYY'),
         '{{STUDENT_ID}}': studentData.studentId,
-        '{{TANGGAL_SURAT}}': moment().format('DD MMMM YYYY'),
+        '{{TANGGAL_SURAT}}': letterDate,
         '{{TAHUN_AKADEMIK}}': academicYear,
     };
 
     for (const [key, value] of Object.entries(replacements)) {
-        htmlContent = htmlContent.replace(new RegExp(key, 'g'), value);
+        // Replace semua occurrence
+        htmlContent = htmlContent.split(key).join(value);
     }
     
     let browser;
     try {
         browser = await puppeteer.launch({
-            headless: true,
-            args: ['--no-sandbox', '--disable-setuid-sandbox'] // Argumen penting untuk server Linux
+            headless: 'new',
+            args: [
+                '--no-sandbox', 
+                '--disable-setuid-sandbox',
+                '--disable-dev-shm-usage', // Menghemat memory di server
+                '--font-render-hinting=none' // Rendering font lebih presisi
+            ] 
         });
         const page = await browser.newPage();
+        
+        // Set viewport A4 biar rendering HTML pas
+        await page.setViewport({ width: 794, height: 1123 }); // Ukuran A4 dalam pixel (96 DPI)
+
         await page.setContent(htmlContent, { waitUntil: 'networkidle0' });
         
+        // [PERBAIKAN UTAMA DI SINI]
         const pdfBuffer = await page.pdf({
             format: 'A4',
-            printBackground: true,
+            printBackground: true, // Wajib true agar background/warna muncul
+            // Hapus margin default (ini biang keroknya jadi 2 halaman)
+            margin: {
+                top: '0px',
+                right: '0px',
+                bottom: '0px',
+                left: '0px'
+            },
+            // Paksa hanya ambil halaman 1 (jika ada overflow pixel sedikit)
+            pageRanges: '1',
+            // Sedikit scale down jika konten terlalu mepet, tapi margin 0 biasanya cukup
+            scale: 1 
         });
 
         return pdfBuffer;
