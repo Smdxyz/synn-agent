@@ -1,4 +1,4 @@
-// helper.js — FINAL VERSION (FIXED 'sendDoc' & 'pollPixnovaJob' & 'delay' EXPORT)
+// helper.js — FINAL FIXED VERSION (Buffer/Uint8Array Handling)
 
 import got from 'got';
 import { 
@@ -20,37 +20,47 @@ import { getStream, toBuffer, sleep } from './libs/utils.js';
 
 // ============================ UTILITAS =================================
 const sha256 = (data) => createHash('sha256').update(data).digest();
-// Ekspor ulang 'sleep' dan 'delay' agar bisa diakses dari H.sleep atau diimpor langsung
-const delay = sleep; // Buat alias 'delay' yang menunjuk ke 'sleep'
+const delay = sleep;
 export { sleep, delay };
+
+// Fungsi internal untuk memastikan input menjadi Buffer
+const ensureBuffer = (input) => {
+    if (typeof input === 'string') return { url: input }; // Jika URL, biarkan objek url
+    if (Buffer.isBuffer(input)) return input; // Jika sudah Buffer, biarkan
+    if (input instanceof Uint8Array) return Buffer.from(input); // [PENTING] Ubah Uint8Array jadi Buffer
+    return input; // Fallback
+};
 
 // ============================ PENGIRIM PESAN DASAR ============================
 export const sendMessage = async (sock, jid, text, options = {}) => sock.sendMessage(jid, { text }, options);
 export { sendMessage as sendText };
+
 export const sendImage = async (sock, jid, urlOrBuffer, caption = '', viewOnce = false, options = {}) => {
-  const image = Buffer.isBuffer(urlOrBuffer) ? urlOrBuffer : { url: urlOrBuffer };
+  const image = ensureBuffer(urlOrBuffer);
   return sock.sendMessage(jid, { image, caption, viewOnce, ...options });
 };
+
 export const sendAudio = async (sock, jid, urlOrBuffer, options = {}) => {
-  const audio = Buffer.isBuffer(urlOrBuffer) ? urlOrBuffer : { url: urlOrBuffer };
+  const audio = ensureBuffer(urlOrBuffer);
   return sock.sendMessage(jid, { audio, mimetype: options.mimetype || 'audio/mpeg', ptt: !!options.ptt, ...options });
 };
+
 export const sendVideo = async (sock, jid, urlOrBuffer, caption = '', options = {}) => {
-  const video = Buffer.isBuffer(urlOrBuffer) ? urlOrBuffer : { url: urlOrBuffer };
+  const video = ensureBuffer(urlOrBuffer);
   return sock.sendMessage(jid, { video, caption, mimetype: options.mimetype || 'video/mp4', ...options });
 };
+
 export const sendGif = async (sock, jid, urlOrBuffer, caption = '', options = {}) => {
-  const video = Buffer.isBuffer(urlOrBuffer) ? urlOrBuffer : { url: urlOrBuffer };
+  const video = ensureBuffer(urlOrBuffer);
   return sock.sendMessage(jid, { video, caption, gifPlayback: true, ...options });
 };
 
-// ============================ [INI YANG DIPERBAIKI SECARA BENAR] ============================
+// [BAGIAN YANG SEBELUMNYA ERROR]
 export const sendDoc = async (sock, jid, urlOrBuffer, fileName = 'file', mimetype = 'application/pdf', options = {}) => {
-  const document = Buffer.isBuffer(urlOrBuffer) ? urlOrBuffer : { url: urlOrBuffer };
-  // Gabungkan 'options' (seperti 'caption' dan 'quoted') ke dalam objek pesan utama
+  // Paksa konversi ke Buffer agar Baileys tidak menganggapnya path file
+  const document = ensureBuffer(urlOrBuffer);
   return sock.sendMessage(jid, { document, fileName, mimetype, ...options });
 };
-// =========================================================================================
 
 // ============================ PENGIRIM PESAN TIPE KHUSUS ============================
 
