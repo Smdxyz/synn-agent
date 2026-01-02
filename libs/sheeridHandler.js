@@ -10,16 +10,16 @@ function getProxy() {
     return proxies[Math.floor(Math.random() * proxies.length)];
 }
 
-// Tambahkan parameter 'type' (default 'student')
 export async function verifySheerID(programId, userData, fileBuffer, useProxy, onProgress = () => {}, type = 'student') {
     const proxyConfig = useProxy ? getProxy() : null;
     const axiosInstance = axios.create({
         proxy: proxyConfig ? new URL(proxyConfig) : false,
         headers: {
-            'User-Agent': 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/5.37.36 (KHTML, like Gecko) Chrome/139.0.0.0 Mobile Safari/537.36',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
             'Accept': 'application/json',
             'Accept-Language': 'en-US,en;q=0.9',
             'Origin': 'https://services.sheerid.com',
+            'Referer': `https://services.sheerid.com/verify/${programId}/`,
         }
     });
 
@@ -45,9 +45,9 @@ export async function verifySheerID(programId, userData, fileBuffer, useProxy, o
         let personalInfoUrl, personalInfoPayload;
 
         if (type === 'teacher') {
-            // LOGIKA UNTUK TEACHER (K12)
-            personalInfoUrl = `https://services.sheerid.com/rest/v2/verification/${verificationId}/step/collectTeacherPersonalInfo`;
-            personalInfoPayload = {
+            // ... LOGIC TEACHER (SAMA SEPERTI SEBELUMNYA) ...
+             personalInfoUrl = `https://services.sheerid.com/rest/v2/verification/${verificationId}/step/collectTeacherPersonalInfo`;
+             personalInfoPayload = {
                 firstName: userData.firstName,
                 lastName: userData.lastName,
                 birthDate: userData.birthDate.toISOString().split('T')[0],
@@ -55,21 +55,30 @@ export async function verifySheerID(programId, userData, fileBuffer, useProxy, o
                 phoneNumber: "",
                 organization: { 
                     id: userData.school.id, 
-                    idExtended: String(userData.school.id), // ID Extended wajib string
+                    idExtended: String(userData.school.id),
                     name: userData.school.name 
                 },
                 locale: "en-US",
                 metadata: { marketConsentValue: false }
             };
         } else {
-            // LOGIKA DEFAULT (STUDENT)
+            // LOGIC STUDENT (PERBAIKAN: GUNAKAN DATA DARI DOCUMENTGENERATOR)
             personalInfoUrl = `https://services.sheerid.com/rest/v2/verification/${verificationId}/step/collectStudentPersonalInfo`;
+            
+            // Perbaikan Nama: Split "LAST, FIRST" balik jadi First Last buat payload
+            // Karena di dokumen formatnya Last, First (misal: DOE, JOHN)
+            // Tapi API butuh First: JOHN, Last: DOE
+            const nameParts = userData.fullName.split(', ');
+            const lastName = nameParts[0];
+            const firstName = nameParts[1];
+
             personalInfoPayload = {
-                firstName: userData.firstName.toUpperCase(),
-                lastName: userData.lastName.toUpperCase(),
-                birthDate: userData.birthDate.toISOString().split('T')[0],
+                firstName: firstName,
+                lastName: lastName,
+                birthDate: moment(userData.birthDate).format('YYYY-MM-DD'),
                 email: userData.email,
-                organization: { id: 327035, name: "Rijksuniversiteit Groningen (Groningen)" },
+                // INI KUNCINYA: Pakai Organization dari data generator (ASU), bukan Hardcode Groningen
+                organization: userData.organization, 
                 locale: "en-US",
                 metadata: { marketConsentValue: false }
             };
@@ -79,28 +88,26 @@ export async function verifySheerID(programId, userData, fileBuffer, useProxy, o
             headers: { 'Content-Type': 'application/json' }
         });
 
-        // --- CEK AUTO-PASS (Khusus Teacher sering Auto-Pass) ---
         if (step2Response.data.currentStep === 'success') {
-            return { success: true, message: "🎉 AUTO-PASS! Verifikasi langsung disetujui tanpa upload dokumen.", data: step2Response.data };
+            return { success: true, message: "🎉 AUTO-PASS! Verifikasi langsung disetujui.", data: step2Response.data };
         }
 
         // --- STEP 3: Cancel SSO ---
         await onProgress('3/7: Melewati login SSO...');
         const cancelSsoUrl = `https://services.sheerid.com/rest/v2/verification/${verificationId}/step/sso`;
-        const ssoResponse = await axiosInstance.delete(cancelSsoUrl);
-
-        // Cek lagi Auto-Pass setelah skip SSO
-        if (ssoResponse.data.currentStep === 'success') {
-            return { success: true, message: "🎉 AUTO-PASS! Verifikasi disetujui setelah skip SSO.", data: ssoResponse.data };
+        // Handle error 404 jika step SSO tidak ada (kadang langsung doc upload)
+        try {
+             await axiosInstance.delete(cancelSsoUrl);
+        } catch (e) {
+            // Ignore if SSO delete fails, might not be needed
         }
         
         // --- STEP 4: Get Upload URL ---
         await onProgress('4/7: Meminta link upload...');
         const getUploadUrl = `https://services.sheerid.com/rest/v2/verification/${verificationId}/step/docUpload`;
         
-        // Tentukan MIME dan Filename berdasarkan tipe
         const mimeType = type === 'teacher' ? 'image/png' : 'application/pdf';
-        const fileName = type === 'teacher' ? 'teacher_badge.png' : 'document.pdf';
+        const fileName = type === 'teacher' ? 'teacher_badge.png' : 'transcript.pdf';
 
         const uploadUrlPayload = {
             files: [{ fileName: fileName, mimeType: mimeType, fileSize: fileBuffer.length }]
