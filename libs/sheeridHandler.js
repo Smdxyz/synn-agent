@@ -62,23 +62,16 @@ export async function verifySheerID(programId, userData, fileBuffer, useProxy, o
                 metadata: { marketConsentValue: false }
             };
         } else {
-            // LOGIC STUDENT (ASU)
+            // LOGIC STUDENT (GRONINGEN)
             personalInfoUrl = `https://services.sheerid.com/rest/v2/verification/${verificationId}/step/collectStudentPersonalInfo`;
             
-            const nameParts = userData.fullName.split(', ');
-            const lastName = nameParts[0];
-            const firstName = nameParts[1];
-
             personalInfoPayload = {
-                firstName: firstName,
-                lastName: lastName,
+                firstName: userData.firstName.toUpperCase(), // Sesuai format dokumen
+                lastName: userData.lastName.toUpperCase(),
                 birthDate: moment(userData.birthDate).format('YYYY-MM-DD'),
                 email: userData.email,
-                // [PERBAIKAN] Buat objek baru agar property 'city' tidak ikut terkirim
-                organization: {
-                    id: userData.organization.id,
-                    name: userData.organization.name
-                },
+                // HARDCODE KEMBALI KE GRONINGEN
+                organization: { id: 327035, name: "Rijksuniversiteit Groningen (Groningen)" },
                 locale: "en-US",
                 metadata: { marketConsentValue: false }
             };
@@ -98,7 +91,7 @@ export async function verifySheerID(programId, userData, fileBuffer, useProxy, o
         try {
              await axiosInstance.delete(cancelSsoUrl);
         } catch (e) {
-            // Ignore SSO delete error
+            // Ignore
         }
         
         // --- STEP 4: Get Upload URL ---
@@ -106,7 +99,7 @@ export async function verifySheerID(programId, userData, fileBuffer, useProxy, o
         const getUploadUrl = `https://services.sheerid.com/rest/v2/verification/${verificationId}/step/docUpload`;
         
         const mimeType = type === 'teacher' ? 'image/png' : 'application/pdf';
-        const fileName = type === 'teacher' ? 'teacher_badge.png' : 'transcript.pdf';
+        const fileName = type === 'teacher' ? 'teacher_badge.png' : 'invoice.pdf'; // Nama file disesuaikan
 
         const uploadUrlPayload = {
             files: [{ fileName: fileName, mimeType: mimeType, fileSize: fileBuffer.length }]

@@ -3,7 +3,7 @@ import { config } from '../../config.js';
 import H from '../../helper.js';
 import db from '../../libs/database.js';
 import { faker } from '@faker-js/faker';
-import { generateDocument, generateStudentData } from '../../libs/documentGenerator.js';
+import { generateRandomDocument, generateStudentData } from '../../libs/documentGenerator.js'; // IMPORT BARU
 import { verifySheerID } from '../../libs/sheeridHandler.js';
 
 const programIdRegex = /\/verify\/([a-f0-9]{24})\//;
@@ -14,7 +14,7 @@ export default async function (sock, msg, args) {
 
     const link = args[0];
     if (!link || !programIdRegex.test(link)) {
-        return H.sendMessage(sock, sender, `❌ Link SheerID tidak valid.\n\nContoh penggunaan:\n${config.BOT_PREFIX}perplexity https://services.sheerid.com/verify/681d40e03e7a8077098cb1b6/`, { quoted: msg });
+        return H.sendMessage(sock, sender, `❌ Link SheerID tidak valid.\nContoh: ${config.BOT_PREFIX}perplexity https://services.sheerid.com/verify/...`, { quoted: msg });
     }
 
     const programId = link.match(programIdRegex)[1];
@@ -23,56 +23,45 @@ export default async function (sock, msg, args) {
     const user = db.getUser(senderId);
     const isVip = db.isVip(senderId);
 
-    // Hitung biaya
     let cost = isVip ? config.sheerid.verificationCost / 2 : config.sheerid.verificationCost;
-    if (useProxy && !isVip) {
-        cost += config.sheerid.proxyCost;
-    }
+    if (useProxy && !isVip) cost += config.sheerid.proxyCost;
     
     if (user.points < cost) {
-        return H.sendMessage(sock, sender, `Poin kamu tidak cukup!\n\n- Poin saat ini: *${user.points} Poin*\n- Biaya verifikasi: *${cost} Poin*\n\nKumpulkan poin dengan `.checkin` atau `.redeem`.`, { quoted: msg });
+        return H.sendMessage(sock, sender, `Poin kurang! Butuh: *${cost} Poin*.`, { quoted: msg });
     }
 
-    const initialMsg = await H.sendMessage(sock, sender, '⏳ Mempersiapkan verifikasi...', { quoted: msg });
+    const initialMsg = await H.sendMessage(sock, sender, '⏳ Memulai proses...', { quoted: msg });
     const edit = (text) => H.editMessage(sock, sender, text, initialMsg.key);
 
     try {
-        await edit('👤 Membuat data siswa...');
+        await edit('👤 Generate data siswa...');
         const studentData = generateStudentData();
-        studentData.email = faker.internet.email(); // Tambahkan email
+        studentData.email = faker.internet.email();
 
-        await edit('📄 Membuat dokumen PDF...');
-        const pdfBuffer = await generateDocument(studentData);
-        if (!pdfBuffer) throw new Error("Gagal membuat dokumen PDF.");
-
-        await edit('🚀 Memulai proses verifikasi otomatis...');
+        // --- [NEW] GENERATE RANDOM DOCUMENT ---
+        await edit('📄 Membuat dokumen acak (ID/Jadwal/Invoice)...');
+        const docResult = await generateRandomDocument(studentData);
         
-        // Progress updater function
-        const onProgress = (progressText) => {
-            edit(`⏳ ${progressText}`);
-        };
+        await edit(`📂 Dokumen Terpilih: *${docResult.fileName}*\n🚀 Mengupload ke SheerID...`);
+        
+        const onProgress = (txt) => edit(`⏳ [${docResult.type.toUpperCase()}] ${txt}`);
 
-        const result = await verifySheerID(programId, studentData, pdfBuffer, useProxy, onProgress);
+        // Kirim buffer dari result generator
+        const result = await verifySheerID(programId, studentData, docResult.buffer, useProxy, onProgress);
 
         if (result.success) {
-            // Kurangi poin
             db.updateUser(senderId, { points: user.points - cost });
-            
-            // Tambahkan bonus referral jika ada
             if(user.referral.by) {
-                const inviter = db.getUser(user.referral.by);
                 const bonus = Math.floor(config.sheerid.verificationCost * config.sheerid.referralBonus);
-                db.updateUser(user.referral.by, { points: inviter.points + bonus });
-                await H.sendMessage(sock, user.referral.by, `🎉 Anda mendapatkan *${bonus} poin* dari referral!`);
+                db.updateUser(user.referral.by, { points: db.getUser(user.referral.by).points + bonus });
             }
-            
-            await edit(`✅ *VERIFIKASI BERHASIL!*\n\n${result.message}\n\nPoin kamu terpotong: ${cost}`);
+            await edit(`✅ *VERIFIKASI BERHASIL!*\n\n${result.message}\n\nDokumen: ${docResult.fileName}`);
         } else {
-            await edit(`❌ *VERIFIKASI GAGAL!*\n\nAlasan: ${result.message}\n\nPoin tidak dipotong.`);
+            await edit(`❌ *VERIFIKASI GAGAL!*\n\nAlasan: ${result.message}`);
         }
 
     } catch (error) {
-        console.error("Perplexity command error:", error);
-        await edit(`Terjadi error internal: ${error.message}`);
+        console.error("Perplexity error:", error);
+        await edit(`Error: ${error.message}`);
     }
 }
