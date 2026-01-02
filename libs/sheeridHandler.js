@@ -2,7 +2,7 @@
 import axios from 'axios';
 import { config } from '../config.js';
 import H from '../helper.js';
-import moment from 'moment-timezone'; // <--- INI YANG KURANG TADI
+import moment from 'moment-timezone';
 
 const { proxies } = config.sheerid;
 
@@ -62,10 +62,9 @@ export async function verifySheerID(programId, userData, fileBuffer, useProxy, o
                 metadata: { marketConsentValue: false }
             };
         } else {
-            // LOGIC STUDENT (ARIZONA STATE UNIVERSITY)
+            // LOGIC STUDENT (ASU)
             personalInfoUrl = `https://services.sheerid.com/rest/v2/verification/${verificationId}/step/collectStudentPersonalInfo`;
             
-            // Parsing nama dari format "LAST, FIRST" (dokumen) ke "First Last" (API)
             const nameParts = userData.fullName.split(', ');
             const lastName = nameParts[0];
             const firstName = nameParts[1];
@@ -73,11 +72,13 @@ export async function verifySheerID(programId, userData, fileBuffer, useProxy, o
             personalInfoPayload = {
                 firstName: firstName,
                 lastName: lastName,
-                // Fix tanggal lahir pake moment
                 birthDate: moment(userData.birthDate).format('YYYY-MM-DD'),
                 email: userData.email,
-                // Pake organisasi dinamis dari generator (ASU)
-                organization: userData.organization, 
+                // [PERBAIKAN] Buat objek baru agar property 'city' tidak ikut terkirim
+                organization: {
+                    id: userData.organization.id,
+                    name: userData.organization.name
+                },
                 locale: "en-US",
                 metadata: { marketConsentValue: false }
             };
@@ -97,7 +98,7 @@ export async function verifySheerID(programId, userData, fileBuffer, useProxy, o
         try {
              await axiosInstance.delete(cancelSsoUrl);
         } catch (e) {
-            // Abaikan error di step ini (kadang gak ada step SSO)
+            // Ignore SSO delete error
         }
         
         // --- STEP 4: Get Upload URL ---
