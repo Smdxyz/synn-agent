@@ -65,3 +65,5 @@ export default async function copilot(sock, message, args, query, sender) {
     }
   }
 }
+
+export const cost = 15;

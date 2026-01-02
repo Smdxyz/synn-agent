@@ -53,3 +53,5 @@ export const aliases = ['youtubesearch', 'carivideo'];
 export const category = 'Downloaders';
 export const description = 'Mencari video di YouTube.';
 export const usage = `${config.BOT_PREFIX}ytsearch <judul video>`;
+
+export const cost = 5;

@@ -30,3 +30,5 @@ export default async function igdl(sock, msg, args, query, sender) {
         }
     });
 }
+
+export const cost = 5;

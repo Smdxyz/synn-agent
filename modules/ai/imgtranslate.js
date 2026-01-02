@@ -58,3 +58,5 @@ export default async function imgTranslate(sock, message, args, query, sender) {
         await H.editMessage(sock, sender, `❌ Gagal menerjemahkan gambar: ${error.message}`, waitingMsg.key);
     }
 }
+
+export const cost = 15;

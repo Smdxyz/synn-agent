@@ -91,3 +91,5 @@ export default async function faceswap(sock, message, args, query, sender, extra
         await H.sendMessage(sock, jid, '❌ Gagal memproses gambar pertama. Coba lagi.', { quoted: message });
     }
 }
+
+export const cost = 10;

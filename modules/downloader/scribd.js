@@ -58,3 +58,5 @@ export default async function scribd(sock, msg, args, query) {
         await react(sock, sender, msg.key, '❌');
     }
 }
+
+export const cost = 5;

@@ -82,3 +82,5 @@ export const aliases = ['ytv', 'youtubevideo'];
 export const category = 'Downloaders';
 export const description = 'Mengunduh video dari YouTube sebagai MP4.';
 export const usage = `${config.BOT_PREFIX}ytmp4 <url>`;
+
+export const cost = 5;

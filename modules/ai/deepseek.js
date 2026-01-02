@@ -72,3 +72,5 @@ export default async function deepseek(sock, message, args, query, sender, extra
     await sendMessage(sock, sender, errorMsg, { quoted: message });
   }
 }
+
+export const cost = 15;

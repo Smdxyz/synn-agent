@@ -32,7 +32,7 @@ export default async function(sock, msg, args) {
     const limit = parseInt(args[1]);
     const vipOnly = args[2] === 'vip';
 
-    if (isNaN(points) || isNaN(limit)) {
+    if (isNaN(points) || isNaN(limit) || points <= 0 || limit <= 0) {
         return H.sendMessage(sock, sender, `Format salah.\nContoh: \n.addcode 100 10 (100 poin, 10x pakai)\n.addcode 500 1 vip (500 poin, 1x pakai, khusus VIP)`, { quoted: msg });
     }
     
@@ -57,3 +57,5 @@ export default async function(sock, msg, args) {
     
     await H.sendMessage(sock, sender, replyText, { quoted: msg });
 }
+
+export const cost = 0;

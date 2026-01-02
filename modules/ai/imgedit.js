@@ -57,3 +57,5 @@ export default async function imgEdit(sock, message, args, query, sender) {
         await H.editMessage(sock, sender, `❌ Gagal mengedit gambar: ${error.message}`, waitingMsg.key);
     }
 }
+
+export const cost = 15;

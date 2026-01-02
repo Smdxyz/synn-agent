@@ -57,3 +57,5 @@ export default async function ytshorts(sock, msg, args, query, sender) {
         await react(sock, sender, msg.key, '❌');
     }
 }
+
+export const cost = 5;

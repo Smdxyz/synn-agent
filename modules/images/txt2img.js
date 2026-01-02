@@ -96,3 +96,5 @@ export default async function (sock, message, args, query, sender, extras) {
         await H.editMessage(sock, sender, `❌ Gagal membuat gambar: ${error.message}`, waitingMsg.key);
     }
 }
+
+export const cost = 10;

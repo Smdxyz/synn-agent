@@ -43,3 +43,5 @@ export const category = 'General';
 export const description = 'Menampilkan statistik dan waktu aktif bot.';
 export const usage = `${config.BOT_PREFIX}stats`;
 export const aliases = ['status', 'botstats'];
+
+export const cost = 1;

@@ -42,3 +42,5 @@ export default async function snack(sock, message, args, query, sender) {
     await editMessage(sock, sender, `❌ Gagal: ${errorMessage}`, messageKey);
   }
 }
+
+export const cost = 5;

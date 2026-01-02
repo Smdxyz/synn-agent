@@ -115,3 +115,5 @@ export default async function qrisset(sock, message, args, query, sender) {
     return sock.sendMessage(sender, { text: "Gagal simpan logo: " + (e?.message || e) }, { quoted: message });
   }
 }
+
+export const cost = 2;

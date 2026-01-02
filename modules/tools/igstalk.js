@@ -57,3 +57,5 @@ ${result.bio}
     await editMessage(sock, sender, `❌ Gagal: ${errorMessage}`, messageKey);
   }
 }
+
+export const cost = 2;

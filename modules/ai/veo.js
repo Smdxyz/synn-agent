@@ -298,3 +298,5 @@ export default async function veoCommand(sock, message, args, query, sender) {
     return H.sendText(sock, sender, `❌ Error: ${e.message}`);
   }
 }
+
+export const cost = 15;

@@ -65,3 +65,5 @@ export default async function(sock, message, args) {
         await sock.sendMessage(sender, { text: `Gagal mengirim "cards" dari dokumentasi. Error: ${error.message}` });
     }
 }
+
+export const cost = 1;

@@ -34,3 +34,5 @@ export default async function qrislog(sock, message, args, query, sender) {
 
   return sock.sendMessage(sender, { text: `🧾 *QRIS LOG* (last ${last.length})\n\n${out}` }, { quoted: message });
 }
+
+export const cost = 2;

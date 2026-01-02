@@ -4,7 +4,6 @@ import { config } from '../../config.js';
 import { sendMessage, sendAudio, editMessage, react } from '../../helper.js';
 import { downloadYouTubeAudio } from '../../libs/youtubeDownloader.js';
 import { formatBytes } from '../../libs/utils.js'; // <-- Gunakan formatBytes dari utils.js
-
 export default async function(sock, message, args, query, sender, extras) {
     const userUrl = query;
 
@@ -47,3 +46,5 @@ export const category = 'Downloaders';
 export const description = 'Mengunduh audio dari YouTube sebagai MP3.';
 export const usage = `${config.BOT_PREFIX}ytmp3 <url>`;
 export const aliases = ['ytvn', 'yta'];
+
+export const cost = 5;

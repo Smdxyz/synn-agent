@@ -105,3 +105,5 @@ export default async function aibaby(sock, message, args, query, sender, extras)
         return H.sendMessage(sock, jid, '❌ Gagal memproses foto Ayah. Coba lagi.', { quoted: message });
     }
 }
+
+export const cost = 3;

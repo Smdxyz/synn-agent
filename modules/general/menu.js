@@ -82,3 +82,5 @@ export const category = 'General';
 export const description = 'Menampilkan menu utama bot.';
 export const usage = `${config.BOT_PREFIX}menu`;
 export const aliases = ['help', 'cmd'];
+
+export const cost = 1;

@@ -51,3 +51,5 @@ export default async function banana(sock, message, args, query, sender) {
         await H.editMessage(sock, sender, `❌ Gagal membuat pisang: ${error.message}`, waitingMsg.key);
     }
 }
+
+export const cost = 10;

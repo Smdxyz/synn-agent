@@ -38,3 +38,5 @@ export default async function gpt4(sock, message, args, query, sender) {
     await sendMessage(sock, sender, "Maaf, terjadi kesalahan saat menghubungi GPT-4.", { quoted: message });
   }
 }
+
+export const cost = 15;

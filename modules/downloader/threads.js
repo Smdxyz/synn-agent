@@ -26,3 +26,5 @@ export default async function threads(sock, msg, args, query) {
         }
     });
 }
+
+export const cost = 5;
