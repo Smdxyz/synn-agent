@@ -52,3 +52,5 @@ export default async function sc(sock, msg, args, query, sender, extras) {
         await sendMessage(sock, sender, `Terjadi error saat membaca source code: ${error.message}`, { quoted: msg });
     }
 }
+
+export const cost = 2;

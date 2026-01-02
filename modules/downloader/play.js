@@ -62,3 +62,5 @@ export const category = 'Downloaders';
 export const description = 'Cari dan kirim lagu dari YouTube sebagai MP3.';
 export const usage = `${config.BOT_PREFIX}play <judul lagu>`;
 export const aliases = ['song', 'music'];
+
+export const cost = 5;

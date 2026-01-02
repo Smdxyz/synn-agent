@@ -4,6 +4,7 @@ import { readdirSync, statSync } from 'fs';
 import { join } from 'path';
 import { config } from './config.js';
 import { settings } from './settings.js';
+import db from './libs/database.js';
 
 // ---- PENYIMPANAN COMMAND & STATE ----
 export const commands = new Map();
@@ -132,6 +133,20 @@ export const handleMessage = async (sock, m) => {
 
     if (commandModule) {
         try {
+            const senderId = message.key.participant || sender;
+            const normalizedSenderId = db.normalizeUserId(senderId);
+            const user = db.getUser(normalizedSenderId);
+
+            const commandCost = Number.isFinite(commandModule.cost) ? commandModule.cost : 0;
+
+            if (commandCost > 0 && user.points < commandCost) {
+                return sock.sendMessage(
+                    sender,
+                    { text: `Poin kamu tidak cukup untuk fitur ini.\n- Biaya: *${commandCost} Poin*\n- Poin kamu: *${user.points}*` },
+                    { quoted: message }
+                );
+            }
+
             const extras = {
                 commands,
                 set: (userId, command, options) => {
@@ -145,6 +160,9 @@ export const handleMessage = async (sock, m) => {
                 },
             };
             await commandModule.default(sock, message, args, query, sender, extras);
+            if (commandCost > 0) {
+                db.updateUser(normalizedSenderId, { points: user.points - commandCost });
+            }
         } catch (error) {
             console.error(`[EXECUTION ERROR] Command: ${commandName}`, error);
             sock.sendMessage(sender, { text: `Terjadi error saat menjalankan command: ${error.message}` }, { quoted: message });

@@ -76,3 +76,5 @@ export default async function aiFilter(sock, message, args, query, sender) {
         await H.editMessage(sock, sender, `❌ Gagal menerapkan filter: ${error.message}`, waitingMsg.key);
     }
 }
+
+export const cost = 15;

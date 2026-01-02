@@ -97,3 +97,5 @@ export default async function playspo(sock, message, args, query, sender) {
         await editMessage(sock, sender, errorMessage, messageKey);
     }
 };
+
+export const cost = 5;

@@ -70,3 +70,5 @@ export default async function applemusic(sock, msg, args, query) {
         await editProgress(`❌ Terjadi kesalahan: ${errorMessage}`);
     }
 }
+
+export const cost = 5;

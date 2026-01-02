@@ -91,3 +91,5 @@ export default async function execute(sock, msg, args) {
         await editProgress(`❌ Gagal melacak resi: ${errorMessage}`);
     }
 }
+
+export const cost = 2;

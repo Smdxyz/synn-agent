@@ -2,6 +2,7 @@
 import fs from 'fs';
 import path from 'path';
 import moment from 'moment-timezone';
+import { config } from '../config.js';
 
 const dbPath = path.join(process.cwd(), 'database');
 if (!fs.existsSync(dbPath)) {
@@ -34,29 +35,64 @@ const writeFile = (filePath, data) => {
     fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
 };
 
+const normalizeUserId = (userId) => {
+    if (!userId) return userId;
+    const [local, domain] = userId.split('@');
+    const normalizedLocal = local.split(':')[0];
+    return domain ? `${normalizedLocal}@${domain}` : normalizedLocal;
+};
+
+const buildUserDefaults = () => ({
+    points: config.points.defaultPoints ?? 0,
+    vipUntil: null,
+    lastCheckin: null
+});
+
+const applyUserMigration = (user) => {
+    const defaults = buildUserDefaults();
+    const migrated = {
+        ...defaults,
+        ...user,
+    };
+
+    if (migrated.points == null && migrated.coin != null) {
+        migrated.points = migrated.coin;
+    }
+
+    delete migrated.coin;
+    delete migrated.referral;
+
+    return migrated;
+};
+
 // User Database
 export const db = {
+    normalizeUserId,
     getUser: (userId) => {
+        const normalizedId = normalizeUserId(userId);
         const users = readFile(userFilePath);
-        if (!users[userId]) {
-            users[userId] = {
-                points: 0,
-                vipUntil: null,
-                lastCheckin: null,
-                referral: {
-                    by: null,
-                    count: 0
-                }
-            };
+        if (!users[normalizedId]) {
+            users[normalizedId] = buildUserDefaults();
             writeFile(userFilePath, users);
         }
-        return users[userId];
+        const migratedUser = applyUserMigration(users[normalizedId]);
+        if (JSON.stringify(migratedUser) !== JSON.stringify(users[normalizedId])) {
+            users[normalizedId] = migratedUser;
+            writeFile(userFilePath, users);
+        }
+        return migratedUser;
     },
     updateUser: (userId, data) => {
+        const normalizedId = normalizeUserId(userId);
         const users = readFile(userFilePath);
-        users[userId] = { ...db.getUser(userId), ...data };
+        const updates = { ...data };
+        if (updates.points == null && updates.coin != null) {
+            updates.points = updates.coin;
+        }
+        delete updates.coin;
+        users[normalizedId] = applyUserMigration({ ...db.getUser(normalizedId), ...updates });
         writeFile(userFilePath, users);
-        return users[userId];
+        return users[normalizedId];
     },
     getAllUsers: () => readFile(userFilePath),
     

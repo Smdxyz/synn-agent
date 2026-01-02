@@ -63,3 +63,5 @@ export default async function (sock, message, args, query, sender) {
     );
   }
 }
+
+export const cost = 1;

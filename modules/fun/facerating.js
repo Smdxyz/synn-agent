@@ -204,3 +204,5 @@ export default async function facerating(sock, message, args, query, sender, ext
         await H.editMessage(sock, jid, `❌ Gagal menganalisis: ${errorMessage}`, messageKey);
     }
 }
+
+export const cost = 3;

@@ -56,3 +56,5 @@ export default async function changeClothes(sock, message, args, query, sender) 
         await H.editMessage(sock, sender, `❌ Gagal mengubah pakaian: ${error.message}`, waitingMsg.key);
     }
 }
+
+export const cost = 15;

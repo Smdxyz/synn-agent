@@ -57,3 +57,5 @@ export default async function execute(sock, msg, args) {
         await editProgress(`❌ Terjadi kesalahan: ${error.message}`);
     }
 }
+
+export const cost = 5;

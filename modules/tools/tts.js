@@ -122,3 +122,5 @@ async function handleVoiceSelection(sock, message, text, context) {
     return true; // Hentikan state, meskipun gagal
   }
 }
+
+export const cost = 2;

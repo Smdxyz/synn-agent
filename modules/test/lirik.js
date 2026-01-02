@@ -176,3 +176,5 @@ export default async function lirikModule(sock, m, args, q, sender) {
     running.delete(sender);
   }
 }
+
+export const cost = 1;

@@ -61,3 +61,5 @@ export default async function execute(sock, msg, args) {
         await editMessage(sock, sender, `❌ Gagal mencari pemain: ${error.message}`, initialMsg.key);
     }
 }
+
+export const cost = 2;

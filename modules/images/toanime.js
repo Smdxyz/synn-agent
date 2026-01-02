@@ -62,3 +62,5 @@ export default async function toanime(sock, message, args, query, sender) {
         await H.editMessage(sock, sender, `❌ Gagal memproses gambar: ${error.message}`, waitingMsg.key);
     }
 }
+
+export const cost = 10;

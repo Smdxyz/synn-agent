@@ -54,3 +54,5 @@ export default async function fbdl(sock, msg, args, query, sender) {
         }
     });
 }
+
+export const cost = 5;

@@ -47,3 +47,5 @@ export default async function unblur(sock, message, args, query, sender) {
     await editMessage(sock, sender, `❌ Gagal: ${errorMessage}`, messageKey);
   }
 }
+
+export const cost = 10;

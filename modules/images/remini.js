@@ -73,3 +73,5 @@ export default async function remini(sock, message, args, query, sender) {
         await H.editMessage(sock, sender, `❌ Gagal total: ${error.message}`, waitingMsg.key);
     }
 }
+
+export const cost = 10;

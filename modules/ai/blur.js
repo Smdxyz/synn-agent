@@ -47,3 +47,5 @@ export default async function blurBackground(sock, message, args, query, sender)
         await H.editMessage(sock, sender, `❌ Gagal: ${error.message}`, waitingMsg.key);
     }
 }
+
+export const cost = 15;

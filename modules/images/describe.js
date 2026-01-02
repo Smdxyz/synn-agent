@@ -42,3 +42,5 @@ export default async function describe(sock, message, args, query, sender) {
     sendMessage(sock, sender, 'Maaf, gagal mendeskripsikan gambar.', { quoted: message });
   }
 }
+
+export const cost = 10;

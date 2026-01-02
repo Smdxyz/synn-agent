@@ -147,3 +147,5 @@ export default async function upscale(sock, message, args, query, sender, extras
     await H.editMessage(sock, jid, `❌ Gagal: ${error.message}`, messageKey);
   }
 }
+
+export const cost = 10;

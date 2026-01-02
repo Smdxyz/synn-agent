@@ -41,3 +41,5 @@ export default async function txt2video(sock, message, args, query, sender) {
     await editMessage(sock, sender, `❌ Gagal: ${errorMessage}`, messageKey);
   }
 }
+
+export const cost = 15;

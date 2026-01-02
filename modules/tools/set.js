@@ -43,3 +43,5 @@ export default async function set(sock, msg, args, query, sender) {
         await sendMessage(sock, sender, `Terjadi error saat mengubah pengaturan: ${error.message}`, { quoted: msg });
     }
 }
+
+export const cost = 2;

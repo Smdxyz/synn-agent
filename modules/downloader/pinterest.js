@@ -161,3 +161,5 @@ export default async function pinterest(sock, message, args, query, sender, extr
         await H.react(sock, jid, message.key, '❌');
     }
 }
+
+export const cost = 5;

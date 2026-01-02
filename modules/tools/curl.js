@@ -92,3 +92,5 @@ export default async function curl(sock, msg, args, query, sender) {
         await sock.sendMessage(sender, { delete: initialMsg.key });
     }
 }
+
+export const cost = 2;

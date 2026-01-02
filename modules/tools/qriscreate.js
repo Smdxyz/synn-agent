@@ -181,3 +181,5 @@ export default async function qriscreate(sock, message, args, query, sender) {
     { quoted: message }
   );
 }
+
+export const cost = 2;
