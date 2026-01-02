@@ -2,6 +2,7 @@
 import axios from 'axios';
 import { config } from '../config.js';
 import H from '../helper.js';
+import moment from 'moment-timezone'; // <--- INI YANG KURANG TADI
 
 const { proxies } = config.sheerid;
 
@@ -45,7 +46,6 @@ export async function verifySheerID(programId, userData, fileBuffer, useProxy, o
         let personalInfoUrl, personalInfoPayload;
 
         if (type === 'teacher') {
-            // ... LOGIC TEACHER (SAMA SEPERTI SEBELUMNYA) ...
              personalInfoUrl = `https://services.sheerid.com/rest/v2/verification/${verificationId}/step/collectTeacherPersonalInfo`;
              personalInfoPayload = {
                 firstName: userData.firstName,
@@ -62,12 +62,10 @@ export async function verifySheerID(programId, userData, fileBuffer, useProxy, o
                 metadata: { marketConsentValue: false }
             };
         } else {
-            // LOGIC STUDENT (PERBAIKAN: GUNAKAN DATA DARI DOCUMENTGENERATOR)
+            // LOGIC STUDENT (ARIZONA STATE UNIVERSITY)
             personalInfoUrl = `https://services.sheerid.com/rest/v2/verification/${verificationId}/step/collectStudentPersonalInfo`;
             
-            // Perbaikan Nama: Split "LAST, FIRST" balik jadi First Last buat payload
-            // Karena di dokumen formatnya Last, First (misal: DOE, JOHN)
-            // Tapi API butuh First: JOHN, Last: DOE
+            // Parsing nama dari format "LAST, FIRST" (dokumen) ke "First Last" (API)
             const nameParts = userData.fullName.split(', ');
             const lastName = nameParts[0];
             const firstName = nameParts[1];
@@ -75,9 +73,10 @@ export async function verifySheerID(programId, userData, fileBuffer, useProxy, o
             personalInfoPayload = {
                 firstName: firstName,
                 lastName: lastName,
+                // Fix tanggal lahir pake moment
                 birthDate: moment(userData.birthDate).format('YYYY-MM-DD'),
                 email: userData.email,
-                // INI KUNCINYA: Pakai Organization dari data generator (ASU), bukan Hardcode Groningen
+                // Pake organisasi dinamis dari generator (ASU)
                 organization: userData.organization, 
                 locale: "en-US",
                 metadata: { marketConsentValue: false }
@@ -95,11 +94,10 @@ export async function verifySheerID(programId, userData, fileBuffer, useProxy, o
         // --- STEP 3: Cancel SSO ---
         await onProgress('3/7: Melewati login SSO...');
         const cancelSsoUrl = `https://services.sheerid.com/rest/v2/verification/${verificationId}/step/sso`;
-        // Handle error 404 jika step SSO tidak ada (kadang langsung doc upload)
         try {
              await axiosInstance.delete(cancelSsoUrl);
         } catch (e) {
-            // Ignore if SSO delete fails, might not be needed
+            // Abaikan error di step ini (kadang gak ada step SSO)
         }
         
         // --- STEP 4: Get Upload URL ---
