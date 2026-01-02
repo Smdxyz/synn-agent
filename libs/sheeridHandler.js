@@ -2,25 +2,27 @@
 import axios from 'axios';
 import { config } from '../config.js';
 import H from '../helper.js';
-import moment from 'moment-timezone';
 
 const { proxies } = config.sheerid;
 
 function getProxy() {
-    if (!proxies || proxies.length === 0) return null;
+    if (proxies.length === 0) return null;
     return proxies[Math.floor(Math.random() * proxies.length)];
 }
 
-export async function verifySheerID(programId, userData, fileBuffer, useProxy, onProgress = () => {}, type = 'student') {
+export async function verifySheerID(programId, studentData, pdfBuffer, useProxy, onProgress = () => {}) {
     const proxyConfig = useProxy ? getProxy() : null;
     const axiosInstance = axios.create({
+        // Konfigurasi proxy bisa lebih kompleks jika diperlukan (misal: https-proxy-agent)
+        // Untuk sekarang, kita asumsikan proxy http sederhana
         proxy: proxyConfig ? new URL(proxyConfig) : false,
         headers: {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'User-Agent': 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/5.37.36 (KHTML, like Gecko) Chrome/139.0.0.0 Mobile Safari/537.36',
             'Accept': 'application/json',
-            'Accept-Language': 'en-US,en;q=0.9',
+            'Accept-Language': 'en-GB,en;q=0.9',
             'Origin': 'https://services.sheerid.com',
-            'Referer': `https://services.sheerid.com/verify/${programId}/`,
+            'Sec-Fetch-Dest': 'empty',
+            'Sec-Fetch-Mode': 'cors',
         }
     });
 
@@ -37,72 +39,34 @@ export async function verifySheerID(programId, userData, fileBuffer, useProxy, o
         });
         const verificationId = initialResponse.data.verificationId;
         if (!verificationId) throw new Error('Gagal mendapatkan verificationId.');
-        
-        console.log(`[SheerID-${type}] ID: ${verificationId} | User: ${userData.fullName}`);
+        console.log(`[SheerID] Verification ID: ${verificationId}`);
 
         // --- STEP 2: Submit Personal Info ---
         await onProgress('2/7: Mengirim data personal...');
-        
-        let personalInfoUrl, personalInfoPayload;
-
-        if (type === 'teacher') {
-             personalInfoUrl = `https://services.sheerid.com/rest/v2/verification/${verificationId}/step/collectTeacherPersonalInfo`;
-             personalInfoPayload = {
-                firstName: userData.firstName,
-                lastName: userData.lastName,
-                birthDate: userData.birthDate.toISOString().split('T')[0],
-                email: userData.email,
-                phoneNumber: "",
-                organization: { 
-                    id: userData.school.id, 
-                    idExtended: String(userData.school.id),
-                    name: userData.school.name 
-                },
-                locale: "en-US",
-                metadata: { marketConsentValue: false }
-            };
-        } else {
-            // LOGIC STUDENT (GRONINGEN)
-            personalInfoUrl = `https://services.sheerid.com/rest/v2/verification/${verificationId}/step/collectStudentPersonalInfo`;
-            
-            personalInfoPayload = {
-                firstName: userData.firstName.toUpperCase(), // Sesuai format dokumen
-                lastName: userData.lastName.toUpperCase(),
-                birthDate: moment(userData.birthDate).format('YYYY-MM-DD'),
-                email: userData.email,
-                // HARDCODE KEMBALI KE GRONINGEN
-                organization: { id: 327035, name: "Rijksuniversiteit Groningen (Groningen)" },
-                locale: "en-US",
-                metadata: { marketConsentValue: false }
-            };
-        }
-
-        const step2Response = await axiosInstance.post(personalInfoUrl, personalInfoPayload, {
+        const personalInfoUrl = `https://services.sheerid.com/rest/v2/verification/${verificationId}/step/collectStudentPersonalInfo`;
+        const personalInfoPayload = {
+            firstName: studentData.firstName.toUpperCase(),
+            lastName: studentData.lastName.toUpperCase(),
+            birthDate: studentData.birthDate.toISOString().split('T')[0], // YYYY-MM-DD
+            email: studentData.email,
+            organization: { id: 327035, name: "Rijksuniversiteit Groningen (Groningen)" }, // Hardcoded sesuai log
+            locale: "en-US",
+            metadata: { marketConsentValue: false }
+        };
+        await axiosInstance.post(personalInfoUrl, personalInfoPayload, {
             headers: { 'Content-Type': 'application/json' }
         });
 
-        if (step2Response.data.currentStep === 'success') {
-            return { success: true, message: "🎉 AUTO-PASS! Verifikasi langsung disetujui.", data: step2Response.data };
-        }
-
         // --- STEP 3: Cancel SSO ---
         await onProgress('3/7: Melewati login SSO...');
-        const cancelSsoUrl = `https://services.sheerid.com/rest/v2/verification/${verificationId}/step/sso`;
-        try {
-             await axiosInstance.delete(cancelSsoUrl);
-        } catch (e) {
-            // Ignore
-        }
+        const cancelSsoUrl = `https://services.sheerid.com/rest/v2/verification/${verificationId}/step/sso?ssoMethod=INACADEMIA`;
+        await axiosInstance.delete(cancelSsoUrl);
         
         // --- STEP 4: Get Upload URL ---
         await onProgress('4/7: Meminta link upload...');
         const getUploadUrl = `https://services.sheerid.com/rest/v2/verification/${verificationId}/step/docUpload`;
-        
-        const mimeType = type === 'teacher' ? 'image/png' : 'application/pdf';
-        const fileName = type === 'teacher' ? 'teacher_badge.png' : 'invoice.pdf'; // Nama file disesuaikan
-
         const uploadUrlPayload = {
-            files: [{ fileName: fileName, mimeType: mimeType, fileSize: fileBuffer.length }]
+            files: [{ fileName: "document.pdf", mimeType: "application/pdf", fileSize: pdfBuffer.length }]
         };
         const uploadUrlResponse = await axiosInstance.post(getUploadUrl, uploadUrlPayload, {
             headers: { 'Content-Type': 'application/json' }
@@ -112,10 +76,10 @@ export async function verifySheerID(programId, userData, fileBuffer, useProxy, o
 
         // --- STEP 5: Upload Document ---
         await onProgress('5/7: Mengunggah dokumen...');
-        await axios.put(uploadUrl, fileBuffer, {
+        await axios.put(uploadUrl, pdfBuffer, {
             headers: {
-                'Content-Type': mimeType,
-                'Content-Length': fileBuffer.length
+                'Content-Type': 'application/pdf',
+                'Content-Length': pdfBuffer.length
             }
         });
 
@@ -127,9 +91,9 @@ export async function verifySheerID(programId, userData, fileBuffer, useProxy, o
         });
         
         // --- STEP 7: Polling for Status ---
-        await onProgress('7/7: Menunggu hasil verifikasi...');
+        await onProgress('7/7: Menunggu hasil verifikasi (bisa sampai 1 menit)...');
         const statusUrl = `https://my.sheerid.com/rest/v2/verification/${verificationId}`;
-        for (let i = 0; i < 15; i++) { 
+        for (let i = 0; i < 15; i++) { // Coba selama 15x5 = 75 detik
             await H.sleep(5000);
             const statusResponse = await axiosInstance.get(statusUrl);
             const currentStep = statusResponse.data.currentStep;
