@@ -227,6 +227,9 @@ export const handleMessage = async (sock, m) => {
             const normalizedSenderId = db.normalizeUserId(senderId);
             const user = db.getUser(normalizedSenderId);
 
+            const isOwner = normalizedSenderId === config.owner;
+            const isGroup = sender.endsWith('@g.us');
+
             const moduleConfig = commandModule.config || {};
 
             // Cek IsOwner
