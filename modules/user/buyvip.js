@@ -1,45 +1,32 @@
-// modules/user/buyvip.js
 import db from '../../libs/database.js';
-import H from '../../helper.js';
-import { config } from '../../config.js';
+import { config as botConfig } from '../../config.js';
 import moment from 'moment-timezone';
 
-export default async function(sock, msg) {
-    const sender = msg.key.remoteJid;
-    const senderId = msg.key.participant || sender;
-    const normalizedSenderId = db.normalizeUserId(senderId);
+export const config = {
+    name: 'buyvip',
+    aliases: ['belivip'],
+    description: `Beli status VIP`, // Description updated since we can't safely string interpolate botConfig before it's loaded dynamically in some scenarios
+    usage: '.buyvip',
+    isGroup: false,
+};
 
-    const user = db.getUser(normalizedSenderId);
-    const price = config.points.vipPrice;
-    const durationDays = config.points.vipDurationDays;
+export const execute = async (sock, m, args, { reply, sender }) => {
+    const userId = db.normalizeUserId(sender);
+    const user = db.getUser(userId);
+    const isVip = db.isVip(userId);
+    const price = botConfig.coins.vipPrice;
+    const durationDays = botConfig.coins.vipDurationDays;
 
-    if (user.points < price) {
-        return H.sendMessage(sock, sender, `Poin kamu tidak cukup untuk membeli VIP.\n- Harga: *${price} Poin*\n- Poin kamu: *${user.points}*`, { quoted: msg });
+    if (user.coins < price) {
+        return reply(`❌ Koin Anda tidak mencukupi untuk membeli VIP.\n\n🎟 Harga VIP: ${price} 🪙\n💳 Koin Anda: ${user.coins} 🪙`);
     }
 
-    const isVip = db.isVip(normalizedSenderId);
-    let newVipUntil;
+    const deducted = db.reduceCoins(userId, price);
+    if (!deducted) return reply('❌ Gagal melakukan transaksi.');
 
-    if (isVip) {
-        // Jika sudah VIP, perpanjang dari tanggal kadaluarsa
-        newVipUntil = moment(user.vipUntil).add(durationDays, 'days');
-    } else {
-        // Jika belum, VIP mulai dari sekarang
-        newVipUntil = moment().add(durationDays, 'days');
-    }
+    db.addVipDays(userId, durationDays);
+    const updatedUser = db.getUser(userId);
 
-    db.updateUser(normalizedSenderId, {
-        points: user.points - price,
-        vipUntil: newVipUntil.toISOString()
-    });
-
-    const formattedDate = newVipUntil.tz('Asia/Jakarta').format('DD MMMM YYYY, HH:mm');
-    await H.sendMessage(
-        sock,
-        sender,
-        `✅ Pembelian VIP berhasil! Akun kamu sekarang VIP selama ${durationDays} hari, berlaku hingga *${formattedDate} WIB*.`,
-        { quoted: msg }
-    );
-}
-
-export const cost = 3;
+    const activeUntil = moment(updatedUser.vipUntil).tz('Asia/Jakarta').format('DD-MM-YYYY HH:mm');
+    reply(`✅ *Pembelian VIP Berhasil!*\n\nAnda telah menjadi member VIP.\nBerlaku sampai: ${activeUntil}\nSisa Koin: ${updatedUser.coins} 🪙`);
+};

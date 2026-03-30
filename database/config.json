@@ -1,0 +1,19 @@
+{
+  "owner": "149804483104935",
+  "botName": "Synn Bots",
+  "mode": "public",
+  "antiCall": true,
+  "antiSpamKeywords": [
+    "pinjol",
+    "pinjaman online"
+  ],
+  "BOT_PREFIX": ".",
+  "WATERMARK": "Synn WhatsApp",
+  "SZYRINE_API_KEY": "SANN21",
+  "coins": {
+    "defaultCoins": 100,
+    "checkinCoins": 5,
+    "vipPrice": 30,
+    "vipDurationDays": 3
+  }
+}
