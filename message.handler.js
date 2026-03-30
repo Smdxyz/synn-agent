@@ -142,8 +142,9 @@ function watchModules() {
     console.log("[HOT-RELOAD] Mengawasi folder modules untuk perubahan...");
 }
 
-// Panggil fungsi loader saat aplikasi pertama kali berjalan
-loadCommands().then(watchModules);
+// Panggil fungsi loader secara sinkron pada saat module diimport pertama kali
+await loadCommands();
+watchModules();
 
 
 // ---- HANDLER UTAMA (DENGAN DETEKSI PESAN CERDAS) ----
@@ -164,10 +165,11 @@ export const handleMessage = async (sock, m) => {
     // --- [FITUR BARU] Mode Self (Hanya Owner yang bisa memberi perintah) ---
     // Dapatkan JID pengirim asli (berfungsi di grup dan PC)
     const actualSender = message.key.participant || message.key.remoteJid;
-    const ownerJid = `${config.owner}@s.whatsapp.net`;
+    const normalizedActualSender = db.normalizeUserId(actualSender);
+    const normalizedGlobalOwnerId = db.normalizeUserId(config.owner + '@s.whatsapp.net');
     
     // Jika selfMode aktif, bot hanya akan merespon perintah dari nomor owner.
-    if (botSettings.selfMode && actualSender !== ownerJid) {
+    if (botSettings.selfMode && normalizedActualSender !== normalizedGlobalOwnerId) {
         return; // Abaikan semua pesan dari orang lain
     }
     // --- Akhir Fitur Baru ---
@@ -225,9 +227,9 @@ export const handleMessage = async (sock, m) => {
         try {
             const senderId = message.key.participant || sender;
             const normalizedSenderId = db.normalizeUserId(senderId);
-            const user = db.getUser(normalizedSenderId);
+            const user = await db.getUser(normalizedSenderId);
 
-            const isOwner = normalizedSenderId === config.owner;
+            const isOwner = normalizedSenderId === normalizedGlobalOwnerId;
             const isGroup = sender.endsWith('@g.us');
 
             const moduleConfig = commandModule.config || {};
@@ -287,11 +289,11 @@ export const handleMessage = async (sock, m) => {
             }
 
             if (commandCost > 0) {
-                db.reduceCoins(normalizedSenderId, commandCost);
+                await db.reduceCoins(normalizedSenderId, commandCost);
             }
         } catch (error) {
-            console.error(`[EXECUTION ERROR] Command: ${commandName}`, error);
-            sock.sendMessage(sender, { text: `Terjadi error saat menjalankan command: ${error.message}` }, { quoted: message });
+            console.error(`[EXECUTION ERROR] Command: ${commandName}\nSender: ${sender}\nError:`, error);
+            sock.sendMessage(sender, { text: `❌ Terjadi kesalahan sistem saat menjalankan fitur ini. Silakan coba lagi nanti.` }, { quoted: message });
         }
     }
 };

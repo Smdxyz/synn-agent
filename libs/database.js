@@ -13,27 +13,47 @@ if (!fs.existsSync(dbPath)) {
 const userFilePath = path.join(dbPath, 'users.json');
 const codeFilePath = path.join(dbPath, 'codes.json');
 
-// Helper untuk baca/tulis file (dengan perbaikan)
-const readFile = (filePath) => {
+// Kunci antrean asinkron untuk mencegah data race
+let writeQueue = Promise.resolve();
+
+// Helper untuk baca/tulis file asinkron
+const readFile = async (filePath) => {
     if (!fs.existsSync(filePath)) {
         return {};
     }
     try {
-        const fileContent = fs.readFileSync(filePath, 'utf-8');
-        // [PERBAIKAN] Cek apakah file kosong atau hanya berisi spasi
+        const fileContent = await fs.promises.readFile(filePath, 'utf-8');
         if (!fileContent.trim()) {
-            return {}; // Return objek kosong jika file tidak ada isinya
+            return {};
         }
-        // [AMAN] Hanya parse jika ada konten
         return JSON.parse(fileContent);
     } catch (e) {
         console.error(`[Database] Gagal membaca atau parse file JSON: ${filePath}`, e);
-        return {}; // Kembalikan objek kosong jika terjadi error parse
+        return {};
     }
 };
 
-const writeFile = (filePath, data) => {
-    fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
+// Fungsi untuk membungkus operasi baca-tulis penuh dalam satu antrean/kunci (mutex)
+const withLock = async (action) => {
+    // Tunggu antrean sebelumnya selesai, tapi jangan lemparkan error dari antrean sebelumnya
+    const nextQueue = writeQueue.then(async () => {
+        return await action();
+    }).catch(async (err) => {
+        console.error("[Database] Error dalam antrean database:", err);
+        return await action(); // Coba lagi jika terjadi error aneh di chain sebelumnya
+    });
+    writeQueue = nextQueue.catch(() => {}); // Catch global untuk mencegah UnhandledPromiseRejection di chain
+    return nextQueue;
+};
+
+const writeFileRaw = async (filePath, data) => {
+    try {
+        const tmpFile = filePath + '.tmp';
+        await fs.promises.writeFile(tmpFile, JSON.stringify(data, null, 2));
+        await fs.promises.rename(tmpFile, filePath);
+    } catch (e) {
+        console.error(`[Database] Gagal menulis file JSON: ${filePath}`, e);
+    }
 };
 
 const normalizeUserId = (userId) => {
@@ -75,66 +95,73 @@ const applyUserMigration = (user) => {
 // User Database
 export const db = {
     normalizeUserId,
-    getUser: (userId) => {
-        const normalizedId = normalizeUserId(userId);
-        const users = readFile(userFilePath);
-        if (!users[normalizedId]) {
-            users[normalizedId] = buildUserDefaults();
-            writeFile(userFilePath, users);
-        }
-        const migratedUser = applyUserMigration(users[normalizedId]);
-        if (JSON.stringify(migratedUser) !== JSON.stringify(users[normalizedId])) {
-            users[normalizedId] = migratedUser;
-            writeFile(userFilePath, users);
-        }
-        return migratedUser;
-    },
-    updateUser: (userId, data) => {
-        const normalizedId = normalizeUserId(userId);
-        const users = readFile(userFilePath);
-        const updates = { ...data };
-
-        // Prevent negative coins
-        if (updates.coins != null && updates.coins < 0) {
-            updates.coins = 0;
-        }
-
-        // Migrate inputs just in case
-        if (updates.coins == null) {
-            if (updates.points != null) {
-                updates.coins = updates.points;
-            } else if (updates.coin != null) {
-                updates.coins = updates.coin;
+    getUser: async (userId) => {
+        return await withLock(async () => {
+            const normalizedId = normalizeUserId(userId);
+            const users = await readFile(userFilePath);
+            let updated = false;
+            if (!users[normalizedId]) {
+                users[normalizedId] = buildUserDefaults();
+                updated = true;
             }
-        }
-        delete updates.points;
-        delete updates.coin;
+            const migratedUser = applyUserMigration(users[normalizedId]);
+            if (JSON.stringify(migratedUser) !== JSON.stringify(users[normalizedId])) {
+                users[normalizedId] = migratedUser;
+                updated = true;
+            }
+            if (updated) await writeFileRaw(userFilePath, users);
+            return migratedUser;
+        });
+    },
+    updateUser: async (userId, data) => {
+        return await withLock(async () => {
+            const normalizedId = normalizeUserId(userId);
+            const users = await readFile(userFilePath);
+            const updates = { ...data };
 
-        users[normalizedId] = applyUserMigration({ ...db.getUser(normalizedId), ...updates });
-        writeFile(userFilePath, users);
-        return users[normalizedId];
+            // Prevent negative coins
+            if (updates.coins != null && updates.coins < 0) {
+                updates.coins = 0;
+            }
+
+            // Migrate inputs just in case
+            if (updates.coins == null) {
+                if (updates.points != null) {
+                    updates.coins = updates.points;
+                } else if (updates.coin != null) {
+                    updates.coins = updates.coin;
+                }
+            }
+            delete updates.points;
+            delete updates.coin;
+
+            const currentUser = users[normalizedId] || buildUserDefaults();
+            users[normalizedId] = applyUserMigration({ ...currentUser, ...updates });
+            await writeFileRaw(userFilePath, users);
+            return users[normalizedId];
+        });
     },
 
     // Tambahan method aman untuk koin
-    addCoins: (userId, amount) => {
+    addCoins: async (userId, amount) => {
         if (amount <= 0 || isNaN(amount)) return null;
-        const user = db.getUser(userId);
-        return db.updateUser(userId, { coins: (user.coins || 0) + amount });
+        const user = await db.getUser(userId);
+        return await db.updateUser(userId, { coins: (user.coins || 0) + amount });
     },
 
-    reduceCoins: (userId, amount) => {
+    reduceCoins: async (userId, amount) => {
         if (amount <= 0 || isNaN(amount)) return false;
-        const user = db.getUser(userId);
+        const user = await db.getUser(userId);
         const currentCoins = user.coins || 0;
         if (currentCoins < amount) return false;
-        db.updateUser(userId, { coins: currentCoins - amount });
+        await db.updateUser(userId, { coins: currentCoins - amount });
         return true;
     },
 
     // Tambahan method aman untuk VIP
-    addVipDays: (userId, days) => {
+    addVipDays: async (userId, days) => {
         if (days <= 0 || isNaN(days)) return null;
-        const user = db.getUser(userId);
+        const user = await db.getUser(userId);
         let newExpiry;
 
         // Jika sudah VIP, perpanjang dari tanggal expired sebelumnya
@@ -145,38 +172,38 @@ export const db = {
             newExpiry = moment().add(days, 'days');
         }
 
-        return db.updateUser(userId, { vipUntil: newExpiry.toISOString() });
+        return await db.updateUser(userId, { vipUntil: newExpiry.toISOString() });
     },
 
-    removeVip: (userId) => {
-        return db.updateUser(userId, { vipUntil: null });
+    removeVip: async (userId) => {
+        return await db.updateUser(userId, { vipUntil: null });
     },
-    getAllUsers: () => readFile(userFilePath),
+    getAllUsers: async () => await readFile(userFilePath),
     
     // Code Database
-    getCode: (code) => {
-        const codes = readFile(codeFilePath);
+    getCode: async (code) => {
+        const codes = await readFile(codeFilePath);
         return codes[code.toUpperCase()];
     },
-    addCode: (codeData) => {
-        const codes = readFile(codeFilePath);
+    addCode: async (codeData) => {
+        const codes = await readFile(codeFilePath);
         codes[codeData.code.toUpperCase()] = codeData;
-        writeFile(codeFilePath, codes);
+        await writeFile(codeFilePath, codes);
     },
-    updateCode: (code, data) => {
-        const codes = readFile(codeFilePath);
+    updateCode: async (code, data) => {
+        const codes = await readFile(codeFilePath);
         const upperCode = code.toUpperCase();
         if(codes[upperCode]) {
             codes[upperCode] = { ...codes[upperCode], ...data };
-            writeFile(codeFilePath, codes);
+            await writeFile(codeFilePath, codes);
             return codes[upperCode];
         }
         return null;
     },
 
     // Utility Cek VIP
-    isVip: (userId) => {
-        const user = db.getUser(userId);
+    isVip: async (userId) => {
+        const user = await db.getUser(userId);
         if (!user.vipUntil) return false;
         return moment().isBefore(moment(user.vipUntil));
     }
