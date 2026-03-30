@@ -2,9 +2,10 @@
 
 import fs from 'fs';
 import path from 'path';
+import paths from './libs/paths.js';
 
 // Tentukan path ke file settings, ini akan membuat file bot_settings.json di folder utama
-const settingsFilePath = path.join(process.cwd(), 'bot_settings.json');
+const settingsFilePath = path.join(paths.database, 'bot_settings.json');
 
 // Pengaturan default jika file tidak ada
 const defaultSettings = {

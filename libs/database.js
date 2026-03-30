@@ -3,10 +3,11 @@ import fs from 'fs';
 import path from 'path';
 import moment from 'moment-timezone';
 import { config } from '../config.js';
+import paths from './paths.js';
 
-const dbPath = path.join(process.cwd(), 'database');
+const dbPath = paths.database;
 if (!fs.existsSync(dbPath)) {
-    fs.mkdirSync(dbPath);
+    fs.mkdirSync(dbPath, { recursive: true });
 }
 
 const userFilePath = path.join(dbPath, 'users.json');
@@ -43,7 +44,7 @@ const normalizeUserId = (userId) => {
 };
 
 const buildUserDefaults = () => ({
-    points: config.points.defaultPoints ?? 0,
+    coins: config.coins.defaultCoins ?? 0,
     vipUntil: null,
     lastCheckin: null
 });
@@ -55,10 +56,16 @@ const applyUserMigration = (user) => {
         ...user,
     };
 
-    if (migrated.points == null && migrated.coin != null) {
-        migrated.points = migrated.coin;
+    // Migrate old points/coin to new coins property
+    if (migrated.coins == null) {
+        if (migrated.points != null) {
+            migrated.coins = migrated.points;
+        } else if (migrated.coin != null) {
+            migrated.coins = migrated.coin;
+        }
     }
 
+    delete migrated.points;
     delete migrated.coin;
     delete migrated.referral;
 
@@ -86,13 +93,63 @@ export const db = {
         const normalizedId = normalizeUserId(userId);
         const users = readFile(userFilePath);
         const updates = { ...data };
-        if (updates.points == null && updates.coin != null) {
-            updates.points = updates.coin;
+
+        // Prevent negative coins
+        if (updates.coins != null && updates.coins < 0) {
+            updates.coins = 0;
         }
+
+        // Migrate inputs just in case
+        if (updates.coins == null) {
+            if (updates.points != null) {
+                updates.coins = updates.points;
+            } else if (updates.coin != null) {
+                updates.coins = updates.coin;
+            }
+        }
+        delete updates.points;
         delete updates.coin;
+
         users[normalizedId] = applyUserMigration({ ...db.getUser(normalizedId), ...updates });
         writeFile(userFilePath, users);
         return users[normalizedId];
+    },
+
+    // Tambahan method aman untuk koin
+    addCoins: (userId, amount) => {
+        if (amount <= 0 || isNaN(amount)) return null;
+        const user = db.getUser(userId);
+        return db.updateUser(userId, { coins: (user.coins || 0) + amount });
+    },
+
+    reduceCoins: (userId, amount) => {
+        if (amount <= 0 || isNaN(amount)) return false;
+        const user = db.getUser(userId);
+        const currentCoins = user.coins || 0;
+        if (currentCoins < amount) return false;
+        db.updateUser(userId, { coins: currentCoins - amount });
+        return true;
+    },
+
+    // Tambahan method aman untuk VIP
+    addVipDays: (userId, days) => {
+        if (days <= 0 || isNaN(days)) return null;
+        const user = db.getUser(userId);
+        let newExpiry;
+
+        // Jika sudah VIP, perpanjang dari tanggal expired sebelumnya
+        if (user.vipUntil && moment().isBefore(moment(user.vipUntil))) {
+            newExpiry = moment(user.vipUntil).add(days, 'days');
+        } else {
+            // Jika belum VIP / sudah expired, mulai dari sekarang
+            newExpiry = moment().add(days, 'days');
+        }
+
+        return db.updateUser(userId, { vipUntil: newExpiry.toISOString() });
+    },
+
+    removeVip: (userId) => {
+        return db.updateUser(userId, { vipUntil: null });
     },
     getAllUsers: () => readFile(userFilePath),
     

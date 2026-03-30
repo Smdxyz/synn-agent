@@ -1,59 +1,128 @@
 // message.handler.js (FINAL & CLEAN VERSION)
 
-import { readdirSync, statSync } from 'fs';
-import { join } from 'path';
+import { readdirSync, statSync, existsSync, watch } from 'fs';
+import { join, basename, extname } from 'path';
 import { config } from './config.js';
 import { settings } from './settings.js';
 import db from './libs/database.js';
+import paths from './libs/paths.js';
 
 // ---- PENYIMPANAN COMMAND & STATE ----
 export const commands = new Map();
 const waitState = new Map();
 
-// ---- FUNGSI UNTUK MEMUAT SEMUA COMMAND SECARA OTOMATIS (VERSI SUB-FOLDER) ----
-async function loadCommands() {
-    const modulesPath = join(process.cwd(), 'modules');
-    if (!readdirSync(process.cwd()).includes('modules')) {
-        console.warn("[LOADER] Folder 'modules' tidak ditemukan. Melewatkan pemuatan command.");
-        return;
+// ---- FUNGSI UNTUK MEMUAT SATU COMMAND SECARA SPESIFIK (HOT RELOAD) ----
+async function loadSingleCommand(filePath) {
+    if (!filePath.endsWith('.js')) return;
+
+    const commandName = basename(filePath, '.js');
+    const backupCommand = commands.get(commandName);
+
+    // Hapus command dan alias lama dari registry
+    if (backupCommand) {
+        commands.delete(commandName);
+        const backupConfig = backupCommand.config || {};
+        if (backupConfig.name) commands.delete(backupConfig.name);
+        if (backupConfig.aliases && Array.isArray(backupConfig.aliases)) {
+            backupConfig.aliases.forEach(alias => commands.delete(alias));
+        }
     }
-    const commandFolders = readdirSync(modulesPath);
 
-    for (const folder of commandFolders) {
-        const fullPath = join(modulesPath, folder);
-        if (statSync(fullPath).isDirectory()) {
-            const commandFiles = readdirSync(fullPath).filter(file => file.endsWith('.js'));
-            for (const file of commandFiles) {
-                try {
-                    const modulePath = join(fullPath, file);
-                    const originalModule = await import(`file://${modulePath}`);
+    // Cache-busting URL untuk ESM hot reload
+    const cacheBuster = `?update=${Date.now()}`;
+    const fileUrl = `file://${filePath}${cacheBuster}`;
 
-                    // [FIX] Buat salinan modul agar bisa dimodifikasi (menghindari error "not extensible")
-                    const commandModule = { ...originalModule };
-                    
-                    // Tambahkan path file ke salinan modul
-                    commandModule.filePath = modulePath;
+    try {
+        const originalModule = await import(fileUrl);
+        const commandModule = { ...originalModule, filePath };
 
-                    const commandName = file.replace('.js', '');
-                    commands.set(commandName, commandModule);
-                    console.log(`[LOADER] Berhasil memuat command: ${commandName} dari ${folder}`);
+        const moduleConfig = commandModule.config || {};
 
-                    if (commandModule.aliases && Array.isArray(commandModule.aliases)) {
-                        commandModule.aliases.forEach(alias => {
-                            commands.set(alias, commandModule);
-                            console.log(`[LOADER] Mendaftarkan alias: ${alias} -> ${commandName}`);
-                        });
-                    }
-                } catch (error) {
-                    console.error(`[LOADER] Gagal memuat command ${file} dari ${folder}:`, error);
-                }
+        // Daftarkan nama asli file
+        commands.set(commandName, commandModule);
+
+        // Daftarkan nama dari config.name jika ada
+        if (moduleConfig.name) {
+            commands.set(moduleConfig.name, commandModule);
+        }
+
+        // Daftarkan aliases
+        if (moduleConfig.aliases && Array.isArray(moduleConfig.aliases)) {
+            moduleConfig.aliases.forEach(alias => commands.set(alias, commandModule));
+        }
+        console.log(`[HOT-RELOAD] Berhasil memuat: ${commandName}`);
+    } catch (error) {
+        console.error(`[HOT-RELOAD] Gagal memuat: ${commandName} -> ${error.message}`);
+        // Restore backup jika gagal
+        if (backupCommand) {
+            commands.set(commandName, backupCommand);
+            const backupConfig = backupCommand.config || {};
+            if (backupConfig.name) {
+                commands.set(backupConfig.name, backupCommand);
             }
+            if (backupConfig.aliases && Array.isArray(backupConfig.aliases)) {
+                backupConfig.aliases.forEach(alias => commands.set(alias, backupCommand));
+            }
+            console.log(`[HOT-RELOAD] Restoring versi lama untuk: ${commandName}`);
         }
     }
 }
 
+// ---- FUNGSI UNTUK MEMUAT SEMUA COMMAND AWAL ----
+async function loadCommands() {
+    const modulesPath = paths.modules;
+    if (!existsSync(modulesPath)) {
+        console.warn("[LOADER] Folder 'modules' tidak ditemukan.");
+        return;
+    }
+
+    const loadDirectory = (dir) => {
+        const files = readdirSync(dir);
+        for (const file of files) {
+            const fullPath = join(dir, file);
+            if (statSync(fullPath).isDirectory()) {
+                loadDirectory(fullPath);
+            } else if (fullPath.endsWith('.js')) {
+                loadSingleCommand(fullPath);
+            }
+        }
+    };
+
+    loadDirectory(modulesPath);
+}
+
+// ---- WATCHER FOLDER MODULES UNTUK HOT RELOAD ----
+function watchModules() {
+    const modulesPath = paths.modules;
+    if (!existsSync(modulesPath)) return;
+
+    watch(modulesPath, { recursive: true }, (eventType, filename) => {
+        if (!filename || !filename.endsWith('.js')) return;
+
+        const fullPath = join(modulesPath, filename);
+        if (existsSync(fullPath)) {
+            // File ditambah atau diubah
+            loadSingleCommand(fullPath);
+        } else {
+            // File dihapus
+            const commandName = basename(filename, '.js');
+            const command = commands.get(commandName);
+            if (command) {
+                commands.delete(commandName);
+                const moduleConfig = command.config || {};
+                if (moduleConfig.name) commands.delete(moduleConfig.name);
+                if (moduleConfig.aliases && Array.isArray(moduleConfig.aliases)) {
+                    moduleConfig.aliases.forEach(alias => commands.delete(alias));
+                }
+                console.log(`[HOT-RELOAD] Command dihapus: ${commandName}`);
+            }
+        }
+    });
+    console.log("[HOT-RELOAD] Mengawasi folder modules untuk perubahan...");
+}
+
 // Panggil fungsi loader saat aplikasi pertama kali berjalan
-loadCommands();
+loadCommands().then(watchModules);
 
 
 // ---- HANDLER UTAMA (DENGAN DETEKSI PESAN CERDAS) ----
@@ -137,19 +206,43 @@ export const handleMessage = async (sock, m) => {
             const normalizedSenderId = db.normalizeUserId(senderId);
             const user = db.getUser(normalizedSenderId);
 
-            const commandCost = Number.isFinite(commandModule.cost) ? commandModule.cost : 0;
+            const moduleConfig = commandModule.config || {};
 
-            if (commandCost > 0 && user.points < commandCost) {
+            // Cek IsOwner
+            if (moduleConfig.isOwner && !isOwner) {
+                return sock.sendMessage(sender, { text: `❌ Perintah ini hanya bisa digunakan oleh Owner.` }, { quoted: message });
+            }
+
+            // Cek isGroup
+            if (moduleConfig.isGroup && !isGroup) {
+                return sock.sendMessage(sender, { text: `❌ Perintah ini hanya bisa digunakan di dalam grup.` }, { quoted: message });
+            }
+
+            // Cost Checking
+            const commandCost = Number.isFinite(moduleConfig.cost) ? moduleConfig.cost : 0;
+
+            if (commandCost > 0 && (user.coins || 0) < commandCost) {
                 return sock.sendMessage(
                     sender,
-                    { text: `Poin kamu tidak cukup untuk fitur ini.\n- Biaya: *${commandCost} Poin*\n- Poin kamu: *${user.points}*` },
+                    { text: `Koin kamu tidak cukup untuk fitur ini.\n- Biaya: *${commandCost} Koin*\n- Koin kamu: *${user.coins || 0}*` },
                     { quoted: message }
                 );
             }
 
-            const extras = {
+            // Helper reply object for the new execute logic
+            const reply = (text, options = {}) => {
+                return sock.sendMessage(sender, { text, ...options }, { quoted: message });
+            };
+
+            const context = {
+                reply,
+                sender: normalizedSenderId,
+                query,
+                command: commandName,
+                isOwner,
+                isGroup,
                 commands,
-                set: (userId, command, options) => {
+                setWaitState: (userId, command, options) => {
                     waitState.set(userId, {
                         command: command,
                         handler: options.handler,
@@ -159,9 +252,18 @@ export const handleMessage = async (sock, m) => {
                     });
                 },
             };
-            await commandModule.default(sock, message, args, query, sender, extras);
+
+            if (typeof commandModule.execute === 'function') {
+                await commandModule.execute(sock, m, args, context);
+            } else if (typeof commandModule.default === 'function') {
+                // Fallback for older modules if any exist
+                await commandModule.default(sock, message, args, query, sender, context);
+            } else {
+                return sock.sendMessage(sender, { text: `Command ${commandName} tidak memiliki fungsi execute.` }, { quoted: message });
+            }
+
             if (commandCost > 0) {
-                db.updateUser(normalizedSenderId, { points: user.points - commandCost });
+                db.reduceCoins(normalizedSenderId, commandCost);
             }
         } catch (error) {
             console.error(`[EXECUTION ERROR] Command: ${commandName}`, error);

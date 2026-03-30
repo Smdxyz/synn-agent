@@ -1,35 +1,35 @@
-// modules/user/checkin.js
-import moment from 'moment-timezone';
 import db from '../../libs/database.js';
-import H from '../../helper.js';
-import { config } from '../../config.js';
+import { config as botConfig } from '../../config.js';
+import moment from 'moment-timezone';
 
-export default async function(sock, msg) {
-    const sender = msg.key.remoteJid;
-    const senderId = msg.key.participant || sender;
-    const normalizedSenderId = db.normalizeUserId(senderId);
+export const config = {
+    name: 'checkin',
+    aliases: ['absen'],
+    description: 'Ambil koin harian/jam gratis',
+    usage: '.checkin',
+    isGroup: false,
+};
 
-    const user = db.getUser(normalizedSenderId);
+export const execute = async (sock, m, args, { reply, sender }) => {
+    const userId = db.normalizeUserId(sender);
+    const user = db.getUser(userId);
     const now = moment().tz('Asia/Jakarta');
-    const lastCheckin = user.lastCheckin ? moment(user.lastCheckin).tz('Asia/Jakarta') : null;
 
-    if (lastCheckin && now.isSame(lastCheckin, 'hour')) {
-        const nextHour = lastCheckin.clone().add(1, 'hour').startOf('hour');
-        return H.sendMessage(sock, sender, `Kamu sudah check-in di jam ini. Coba lagi setelah pukul *${nextHour.format('HH:00')} WIB*.`, { quoted: msg });
+    // Cek apakah sudah checkin di jam yang sama
+    if (user.lastCheckin) {
+        const last = moment(user.lastCheckin).tz('Asia/Jakarta');
+        if (now.isSame(last, 'hour')) {
+            const nextCheckin = moment(last).add(1, 'hour');
+            const diffMin = nextCheckin.diff(now, 'minutes');
+            return reply(`⏳ Anda sudah check-in.\nSilakan coba lagi dalam ${diffMin} menit.`);
+        }
     }
 
-    const pointsGained = config.points.checkinPoints;
-    db.updateUser(normalizedSenderId, {
-        points: user.points + pointsGained,
-        lastCheckin: now.toISOString()
-    });
+    const checkinAmount = botConfig.coins.checkinCoins;
+    db.addCoins(userId, checkinAmount);
+    db.updateUser(userId, { lastCheckin: now.toISOString() });
 
-    await H.sendMessage(
-        sock,
-        sender,
-        `✅ Check-in berhasil! Kamu mendapatkan *${pointsGained} poin*.\nPoin kamu sekarang: *${user.points + pointsGained}*.`,
-        { quoted: msg }
-    );
-}
+    const updatedUser = db.getUser(userId);
 
-export const cost = 0;
+    reply(`✅ *Check-in Berhasil!*\n\nAnda mendapatkan +${checkinAmount} Koin 🪙\nTotal Koin: ${updatedUser.coins} 🪙`);
+};
