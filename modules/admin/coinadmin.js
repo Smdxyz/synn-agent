@@ -25,7 +25,7 @@ export const execute = async (sock, m, args, { reply, command }) => {
     const amount = parseInt(args[1]);
 
     if (command === 'cekcoin') {
-        const user = db.getUser(userId);
+        const user = await db.getUser(userId);
         return reply(`Koin user @${userId.split('@')[0]} saat ini: ${user.coins || 0}🪙`, { mentions: [target] });
     }
 
@@ -34,17 +34,17 @@ export const execute = async (sock, m, args, { reply, command }) => {
     }
 
     if (command === 'addcoin') {
-        db.addCoins(userId, amount);
+        await db.addCoins(userId, amount);
         reply(`Berhasil menambahkan ${amount} koin ke @${userId.split('@')[0]}`, { mentions: [target] });
     } else if (command === 'delcoin') {
-        const result = db.reduceCoins(userId, amount);
+        const result = await db.reduceCoins(userId, amount);
         if (result) {
             reply(`Berhasil mengurangi ${amount} koin dari @${userId.split('@')[0]}`, { mentions: [target] });
         } else {
             reply(`Gagal mengurangi koin. Koin @${userId.split('@')[0]} tidak mencukupi.`, { mentions: [target] });
         }
     } else if (command === 'setcoin') {
-        db.updateUser(userId, { coins: amount });
+        await db.updateUser(userId, { coins: amount });
         reply(`Koin @${userId.split('@')[0]} berhasil diatur menjadi ${amount}🪙`, { mentions: [target] });
     }
 };

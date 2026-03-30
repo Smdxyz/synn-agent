@@ -23,8 +23,8 @@ export const execute = async (sock, m, args, { reply, command }) => {
 
     const userId = db.normalizeUserId(target);
     const days = parseInt(args[1]);
-    const isVip = db.isVip(userId);
-    const user = db.getUser(userId);
+    const isVip = await db.isVip(userId);
+    const user = await db.getUser(userId);
 
     if (command === 'cekvip') {
         if (isVip) {
@@ -36,16 +36,16 @@ export const execute = async (sock, m, args, { reply, command }) => {
 
     if (command === 'addvip') {
         if (isNaN(days) || days <= 0) return reply('Masukkan jumlah hari yang valid (lebih dari 0).');
-        db.addVipDays(userId, days);
-        const updated = db.getUser(userId);
+        await db.addVipDays(userId, days);
+        const updated = await db.getUser(userId);
         return reply(`Berhasil menambahkan VIP selama ${days} hari ke @${userId.split('@')[0]}\nAktif sampai: ${moment(updated.vipUntil).tz('Asia/Jakarta').format('DD-MM-YYYY HH:mm')}`, { mentions: [target] });
     } else if (command === 'setvip') {
         if (isNaN(days) || days <= 0) return reply('Masukkan jumlah hari yang valid (lebih dari 0).');
-        db.updateUser(userId, { vipUntil: moment().add(days, 'days').toISOString() });
-        const updated = db.getUser(userId);
+        await db.updateUser(userId, { vipUntil: moment().add(days, 'days').toISOString() });
+        const updated = await db.getUser(userId);
         return reply(`Berhasil mengatur VIP menjadi ${days} hari dari sekarang ke @${userId.split('@')[0]}\nAktif sampai: ${moment(updated.vipUntil).tz('Asia/Jakarta').format('DD-MM-YYYY HH:mm')}`, { mentions: [target] });
     } else if (command === 'delvip') {
-        db.removeVip(userId);
+        await db.removeVip(userId);
         return reply(`Status VIP untuk @${userId.split('@')[0]} berhasil dicabut.`, { mentions: [target] });
     }
 };

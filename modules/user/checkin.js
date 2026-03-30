@@ -12,7 +12,7 @@ export const config = {
 
 export const execute = async (sock, m, args, { reply, sender }) => {
     const userId = db.normalizeUserId(sender);
-    const user = db.getUser(userId);
+    const user = await db.getUser(userId);
     const now = moment().tz('Asia/Jakarta');
 
     // Cek apakah sudah checkin di jam yang sama
@@ -26,10 +26,10 @@ export const execute = async (sock, m, args, { reply, sender }) => {
     }
 
     const checkinAmount = botConfig.coins.checkinCoins;
-    db.addCoins(userId, checkinAmount);
-    db.updateUser(userId, { lastCheckin: now.toISOString() });
+    await db.addCoins(userId, checkinAmount);
+    await db.updateUser(userId, { lastCheckin: now.toISOString() });
 
-    const updatedUser = db.getUser(userId);
+    const updatedUser = await db.getUser(userId);
 
     reply(`✅ *Check-in Berhasil!*\n\nAnda mendapatkan +${checkinAmount} Koin 🪙\nTotal Koin: ${updatedUser.coins} 🪙`);
 };

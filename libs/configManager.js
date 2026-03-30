@@ -38,12 +38,19 @@ function loadConfig() {
     }
 }
 
-function saveConfig(configObject) {
-    try {
-        fs.writeFileSync(configFilePath, JSON.stringify(configObject, null, 2));
-    } catch (error) {
-        console.error("[CONFIG] Gagal menyimpan konfigurasi:", error);
-    }
+let writeQueue = Promise.resolve();
+
+function saveConfigAsync(configObject) {
+    writeQueue = writeQueue.then(async () => {
+        try {
+            const tmpFile = configFilePath + '.tmp';
+            await fs.promises.writeFile(tmpFile, JSON.stringify(configObject, null, 2));
+            await fs.promises.rename(tmpFile, configFilePath);
+        } catch (error) {
+            console.error("[CONFIG] Gagal menyimpan konfigurasi:", error);
+        }
+    });
+    return writeQueue;
 }
 
 let currentConfig = loadConfig();
@@ -60,7 +67,8 @@ export const configManager = {
         } else {
             currentConfig[key] = value;
         }
-        saveConfig(currentConfig);
+        // Save async using fire-and-forget to keep synchronous return for the Proxy
+        saveConfigAsync(currentConfig);
     },
     reload: () => {
         currentConfig = loadConfig();
