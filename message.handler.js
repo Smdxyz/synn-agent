@@ -76,19 +76,19 @@ async function loadCommands() {
         return;
     }
 
-    const loadDirectory = (dir) => {
+    const loadDirectory = async (dir) => {
         const files = readdirSync(dir);
         for (const file of files) {
             const fullPath = join(dir, file);
             if (statSync(fullPath).isDirectory()) {
-                loadDirectory(fullPath);
+                await loadDirectory(fullPath);
             } else if (fullPath.endsWith('.js')) {
-                loadSingleCommand(fullPath);
+                await loadSingleCommand(fullPath);
             }
         }
     };
 
-    loadDirectory(modulesPath);
+    await loadDirectory(modulesPath);
 }
 
 // ---- WATCHER FOLDER MODULES UNTUK HOT RELOAD ----
@@ -96,27 +96,48 @@ function watchModules() {
     const modulesPath = paths.modules;
     if (!existsSync(modulesPath)) return;
 
+    let debounceTimeouts = new Map();
+    let isReloading = new Set();
+
     watch(modulesPath, { recursive: true }, (eventType, filename) => {
         if (!filename || !filename.endsWith('.js')) return;
 
         const fullPath = join(modulesPath, filename);
-        if (existsSync(fullPath)) {
-            // File ditambah atau diubah
-            loadSingleCommand(fullPath);
-        } else {
-            // File dihapus
-            const commandName = basename(filename, '.js');
-            const command = commands.get(commandName);
-            if (command) {
-                commands.delete(commandName);
-                const moduleConfig = command.config || {};
-                if (moduleConfig.name) commands.delete(moduleConfig.name);
-                if (moduleConfig.aliases && Array.isArray(moduleConfig.aliases)) {
-                    moduleConfig.aliases.forEach(alias => commands.delete(alias));
-                }
-                console.log(`[HOT-RELOAD] Command dihapus: ${commandName}`);
-            }
+
+        // Prevent rapid execution
+        if (debounceTimeouts.has(fullPath)) {
+            clearTimeout(debounceTimeouts.get(fullPath));
         }
+
+        debounceTimeouts.set(fullPath, setTimeout(async () => {
+            debounceTimeouts.delete(fullPath);
+
+            // Prevent concurrent loads for the same file
+            if (isReloading.has(fullPath)) return;
+            isReloading.add(fullPath);
+
+            try {
+                if (existsSync(fullPath)) {
+                    // File ditambah atau diubah
+                    await loadSingleCommand(fullPath);
+                } else {
+                    // File dihapus
+                    const commandName = basename(filename, '.js');
+                    const command = commands.get(commandName);
+                    if (command) {
+                        commands.delete(commandName);
+                        const moduleConfig = command.config || {};
+                        if (moduleConfig.name) commands.delete(moduleConfig.name);
+                        if (moduleConfig.aliases && Array.isArray(moduleConfig.aliases)) {
+                            moduleConfig.aliases.forEach(alias => commands.delete(alias));
+                        }
+                        console.log(`[HOT-RELOAD] Command dihapus: ${commandName}`);
+                    }
+                }
+            } finally {
+                isReloading.delete(fullPath);
+            }
+        }, 500)); // 500ms debounce
     });
     console.log("[HOT-RELOAD] Mengawasi folder modules untuk perubahan...");
 }
