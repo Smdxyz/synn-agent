@@ -154,6 +154,11 @@ export const handleMessage = async (sock, m) => {
     // Abaikan jika tidak ada konten pesan
     if (!message.message) return;
 
+    // Helper untuk meresolve identitas pengirim dengan prioritas Baileys v7
+    const getSenderId = (key) => {
+        return key.participantAlt || key.participant || key.remoteJidAlt || key.remoteJid;
+    };
+
     // Ambil pengaturan bot
     const botSettings = settings.get();
 
@@ -163,13 +168,23 @@ export const handleMessage = async (sock, m) => {
     }
 
     // --- [FITUR BARU] Mode Self (Hanya Owner yang bisa memberi perintah) ---
-    // Dapatkan JID pengirim asli (berfungsi di grup dan PC)
-    const actualSender = message.key.participant || message.key.remoteJid;
+    // Dapatkan JID pengirim asli (berfungsi di grup dan PC) menggunakan helper baru
+    const actualSender = getSenderId(message.key);
     const normalizedActualSender = db.normalizeUserId(actualSender);
-    const normalizedGlobalOwnerId = db.normalizeUserId(config.owner + '@s.whatsapp.net');
+
+    // Logika pengecekan owner yang mendukung PN dan LID
+    const checkIsOwner = (normalizedId) => {
+        const ownerPn = db.normalizeUserId(config.owner + '@s.whatsapp.net');
+        const botId = sock.user?.id ? db.normalizeUserId(sock.user.id) : null;
+        const botLid = sock.user?.lid ? db.normalizeUserId(sock.user.lid) : null;
+
+        return normalizedId === ownerPn ||
+               (botId && normalizedId === botId) ||
+               (botLid && normalizedId === botLid);
+    };
     
     // Jika selfMode aktif, bot hanya akan merespon perintah dari nomor owner.
-    if (botSettings.selfMode && normalizedActualSender !== normalizedGlobalOwnerId) {
+    if (botSettings.selfMode && !checkIsOwner(normalizedActualSender)) {
         return; // Abaikan semua pesan dari orang lain
     }
     // --- Akhir Fitur Baru ---
@@ -225,11 +240,11 @@ export const handleMessage = async (sock, m) => {
 
     if (commandModule) {
         try {
-            const senderId = message.key.participant || sender;
+            const senderId = getSenderId(message.key);
             const normalizedSenderId = db.normalizeUserId(senderId);
             const user = await db.getUser(normalizedSenderId);
 
-            const isOwner = normalizedSenderId === normalizedGlobalOwnerId;
+            const isOwner = checkIsOwner(normalizedSenderId);
             const isGroup = sender.endsWith('@g.us');
 
             const moduleConfig = commandModule.config || {};

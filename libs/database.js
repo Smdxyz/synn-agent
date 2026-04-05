@@ -57,8 +57,10 @@ const writeFileRaw = async (filePath, data) => {
 };
 
 const normalizeUserId = (userId) => {
-    if (!userId) return userId;
-    const [local, domain] = userId.split('@');
+    if (typeof userId !== 'string') return userId;
+    const parts = userId.split('@');
+    const local = parts.shift();
+    const domain = parts.join('@');
     const normalizedLocal = local.split(':')[0];
     return domain ? `${normalizedLocal}@${domain}` : normalizedLocal;
 };
