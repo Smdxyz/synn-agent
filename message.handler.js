@@ -156,6 +156,8 @@ export const handleMessage = async (sock, m) => {
 
     // Helper untuk meresolve identitas pengirim dengan prioritas Baileys v7
     const getSenderId = (key) => {
+        // Jika dikirim oleh bot/owner sendiri (fromMe), identitasnya adalah ID bot
+        if (key.fromMe) return sock.user?.id || sock.user?.lid || key.remoteJid;
         return key.participantAlt || key.participant || key.remoteJidAlt || key.remoteJid;
     };
 

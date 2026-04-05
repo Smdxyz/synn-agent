@@ -11,18 +11,24 @@ export const config = {
 export const execute = async (sock, m, args, { reply, command }) => {
     if (args.length < 1) return reply(`Format salah!\nContoh: .${command} @user 100\nAtau reply pesan target.`);
 
-    // Ambil target (dari mention atau reply)
+    // Ambil target (dari mention, reply, atau text argumen)
     let target = '';
+    let amountIndex = 1;
+
     if (m.message?.extendedTextMessage?.contextInfo?.mentionedJid?.length > 0) {
         target = m.message.extendedTextMessage.contextInfo.mentionedJid[0];
     } else if (m.message?.extendedTextMessage?.contextInfo?.participant) {
         target = m.message.extendedTextMessage.contextInfo.participant;
+        amountIndex = 0; // Jika reply, argumen pertama (args[0]) adalah jumlahnya
+    } else if (args[0] && args[0].includes('@') || args[0].replace(/[^0-9]/g, '').length >= 10) {
+        // Fallback untuk plain text misal @628... atau 628...
+        target = args[0].replace(/[^0-9]/g, '') + '@s.whatsapp.net';
     } else {
-        return reply('Tag atau reply pesan user yang ingin diatur koinnya.');
+        return reply('Tag, masukkan nomor, atau reply pesan user yang ingin diatur koinnya.');
     }
 
     const userId = db.normalizeUserId(target);
-    const amount = parseInt(args[1]);
+    const amount = parseInt(args[amountIndex]);
 
     if (command === 'cekcoin') {
         const user = await db.getUser(userId);
