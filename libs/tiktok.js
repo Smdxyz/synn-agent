@@ -1,4 +1,4 @@
-// /libs/tiktok.js (FINAL & REINFORCED - WITH COOKIE JAR & BROWSER HEADERS)
+// libs/tiktok.js (SUPPORT ALL TYPE: SCRAPE + API BACKUP)
 
 import axios from 'axios';
 import * as cheerio from 'cheerio';
@@ -11,9 +11,56 @@ const USER_AGENTS = {
 };
 
 // =================================================================
-// === BAGIAN SCRAPER (TIDAK BERUBAH BANYAKKK) ===
+// === BAGIAN 1: API BACKUP (SZYRINE API) ===
 // =================================================================
+async function getFromAPI(url) {
+    try {
+        const apiUrl = `https://szyrine.me/api/dl/tiktok?url=${encodeURIComponent(url)}`;
+        const { data } = await axios.get(apiUrl, { timeout: 30000 });
 
+        // Cek apakah response valid dari API
+        if (data?.status !== 200 || !data?.result?.status) return null;
+
+        const res = data.result;
+        const title = res.title || "TikTok Downloader";
+
+        // Kasus 1: Carousel / Kumpulan Gambar
+        if (res.type === 'carousel' || (res.download?.images && res.download.images.length > 0)) {
+            return {
+                type: 'image',
+                title,
+                imageUrls: res.download.images
+            };
+        }
+
+        // Kasus 2: Video (Atau gambar tunggal yang dilabeli 'video' oleh beberapa API)
+        const vidUrl = res.download?.nowm || res.download?.wm;
+        if (vidUrl) {
+            // Deteksi jika ternyata ini adalah foto tunggal berformat jpeg/png
+            if (/\.(jpeg|jpg|png)/i.test(vidUrl)) {
+                return {
+                    type: 'image',
+                    title,
+                    imageUrls: [vidUrl]
+                };
+            }
+            return {
+                type: 'video',
+                title,
+                videoUrl: vidUrl
+            };
+        }
+
+        return null;
+    } catch (error) {
+        console.error("[TIKTOK_API] API Backup gagal:", error.message);
+        return null;
+    }
+}
+
+// =================================================================
+// === BAGIAN 2: INTERNAL SCRAPER ===
+// =================================================================
 function findKeyRecursive(obj, key) {
   if (typeof obj !== 'object' || obj === null) return null;
   if (key in obj) return obj[key];
@@ -28,10 +75,7 @@ function parseItemStruct(itemModule) {
     if (!itemModule || !itemModule.id) return { type: null };
     const baseData = {
         id: itemModule.id,
-        description: itemModule.desc,
-        author: itemModule.author,
-        music: itemModule.music,
-        stats: itemModule.stats,
+        description: itemModule.desc || 'TikTok Media',
     };
     if (itemModule.imagePost?.images) {
         return { ...baseData, type: 'image', images: itemModule.imagePost.images.map(img => img.imageURL.urlList[0]) };
@@ -47,9 +91,7 @@ async function scrapePage(url, userAgent, client) {
     const finalUrl = request.res.responseUrl || url;
     const $ = cheerio.load(html);
     let itemModule = null;
-    let methodUsed = '';
 
-    // Cari dengan berbagai metode
     const scripts = $('script');
     for (const el of scripts) {
       const scriptContent = $(el).html()?.trim();
@@ -59,7 +101,6 @@ async function scrapePage(url, userAgent, client) {
           const found = findKeyRecursive(json, 'itemStruct');
           if (found && found.id) {
             itemModule = found;
-            methodUsed = $(el).attr('id') || 'JSON_SCAN';
             break;
           }
         } catch (e) {}
@@ -67,96 +108,77 @@ async function scrapePage(url, userAgent, client) {
     }
 
     if (itemModule) {
-      console.log(`[SCRAPE] Data 'itemStruct' ditemukan via: ${methodUsed}`);
       const parsedData = parseItemStruct(itemModule);
       return parsedData.type ? { ...parsedData, finalUrl } : null;
     }
-    
     return null;
   } catch (error) {
-    console.error(`[SCRAPE] Error saat scraping: ${error.message}`);
-    return null;
+    throw new Error(`Scrape HTTP Error: ${error.message}`);
   }
 }
 
-// =================================================================
-// === BAGIAN DOWNLOADER (INI YANG KITA ROMBAK TOTAL) ===
-// =================================================================
-
-/**
- * Mengunduh media dari URL sebagai Buffer, kini dengan cookie dan header lengkap.
- * @param {import('axios').AxiosInstance} client Instance axios yang sudah terbungkus cookie jar.
- */
-export async function downloadMediaAsBuffer(client, url, referer, uaType = 'desktop') {
-    console.log(`[DOWNLOAD] Memulai unduhan untuk: ${url.slice(0, 60)}...`);
-    try {
-        const { data } = await client.get(url, {
-            responseType: 'arraybuffer',
-            headers: {
-                'Referer': referer,
-                'Range': 'bytes=0-',
-                'User-Agent': USER_AGENTS[uaType],
-                'accept': '*/*',
-                'accept-language': 'id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7',
-                'sec-ch-ua': '"Chromium";v="139", "Not;A=Brand";v="99"',
-                'sec-ch-ua-mobile': '?1',
-                'sec-ch-ua-platform': '"Android"',
-                'sec-fetch-dest': 'video',
-                'sec-fetch-mode': 'no-cors',
-                'sec-fetch-site': 'same-site',
-            },
-            timeout: 180000,
-        });
-        console.log(`[DOWNLOAD] Sukses. Ukuran buffer: ${(data.length / 1024 / 1024).toFixed(2)} MB`);
-        return data;
-    } catch (error) {
-        const status = error.response?.status || 'N/A';
-        console.error(`[DOWNLOAD] Gagal mengunduh (Status: ${status}): ${error.message}`);
-        throw new Error(`Gagal mengunduh media dari server TikTok. Status: ${status}`);
-    }
+async function downloadMediaAsBuffer(client, url, referer, uaType = 'desktop') {
+    const { data } = await client.get(url, {
+        responseType: 'arraybuffer',
+        headers: {
+            'Referer': referer,
+            'Range': 'bytes=0-',
+            'User-Agent': USER_AGENTS[uaType],
+        },
+        timeout: 60000,
+    });
+    return data;
 }
 
 // =================================================================
-// === FUNGSI EKSPOR UTAMA (DENGAN MANAJEMEN SESI COOKIE) ===
+// === FUNGSI EKSPOR UTAMA ===
 // =================================================================
-
 export async function getTikTokPost(tiktokUrl) {
-  console.log(`[MAIN] Memulai sesi scraping baru untuk: ${tiktokUrl}`);
+    console.log(`[TIKTOK] Mencoba internal scraper untuk: ${tiktokUrl}`);
 
-  // 1. Buat "sesi browsing" baru dengan cookie jar-nya sendiri
-  const jar = new CookieJar();
-  const client = wrapper(axios.create({ jar }));
+    try {
+        const jar = new CookieJar();
+        const client = wrapper(axios.create({ jar }));
 
-  // 2. Kunjungi halaman dengan UA Mobile dulu untuk mengambil cookie
-  let postData = await scrapePage(tiktokUrl, USER_AGENTS.mobile, client);
+        // Coba pakai Mobile dulu
+        let postData = await scrapePage(tiktokUrl, USER_AGENTS.mobile, client);
 
-  // Jika gagal atau hasilnya video, coba lagi dengan UA Desktop
-  if (!postData || postData.type === 'video') {
-      const desktopData = await scrapePage(tiktokUrl, USER_AGENTS.desktop, client);
-      if (desktopData) postData = desktopData;
-  }
+        // Jika gagal / hasilnya video, coba ulang pakai Desktop
+        if (!postData || postData.type === 'video') {
+            const desktopData = await scrapePage(tiktokUrl, USER_AGENTS.desktop, client);
+            if (desktopData) postData = desktopData;
+        }
 
-  if (!postData) {
-      throw new Error('Gagal mengekstrak data media dari halaman TikTok.');
-  }
-  
-  const { type, finalUrl } = postData;
+        if (postData) {
+            const { type, finalUrl } = postData;
+            
+            if (type === 'image') {
+                const imageBuffers = [];
+                for (const imageUrl of postData.images) {
+                    const buffer = await downloadMediaAsBuffer(client, imageUrl, finalUrl, 'mobile');
+                    imageBuffers.push(buffer);
+                }
+                return { type: 'image', title: postData.description, imageBuffers };
 
-  // 3. Gunakan sesi (client) yang sama untuk mengunduh, plus strategi UA
-  if (type === 'image') {
-    console.log(`[MAIN] Tipe: FOTO. Mengunduh ${postData.images.length} gambar dengan UA Mobile.`);
-    const imageBuffers = [];
-    for (const imageUrl of postData.images) {
-      const buffer = await downloadMediaAsBuffer(client, imageUrl, finalUrl, 'mobile');
-      imageBuffers.push(buffer);
+            } else if (type === 'video') {
+                const videoBuffer = await downloadMediaAsBuffer(client, postData.videoUrl, finalUrl, 'desktop');
+                return { type: 'video', title: postData.description, videoBuffer };
+            }
+        }
+        throw new Error("Data itemStruct tidak ditemukan.");
+    } catch (error) {
+        console.warn(`[TIKTOK] Internal scraper gagal: ${error.message}. Beralih ke API Backup...`);
     }
-    return { ...postData, imageBuffers };
 
-  } else if (type === 'video') {
-    console.log(`[MAIN] Tipe: VIDEO. Mengunduh video dengan UA Desktop.`);
-    const videoBuffer = await downloadMediaAsBuffer(client, postData.videoUrl, finalUrl, 'desktop');
-    return { ...postData, videoBuffer };
-  }
-  
-  return null;
+    // --- FALLBACK KE API JIKA SCRAPE GAGAL ---
+    console.log(`[TIKTOK] Menggunakan API Backup untuk: ${tiktokUrl}`);
+    const apiResult = await getFromAPI(tiktokUrl);
+    
+    if (apiResult) {
+        console.log(`[TIKTOK] Sukses mengambil dari API Backup (${apiResult.type}).`);
+        return apiResult;
+    }
+
+    // Jika keduanya gagal
+    throw new Error('Gagal mengunduh media dari sistem utama maupun backup API. Link mungkin private atau dihapus.');
 }
