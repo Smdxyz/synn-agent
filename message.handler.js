@@ -19,12 +19,9 @@ async function loadSingleCommand(filePath) {
     const backupCommand = commands.get(commandName);
 
     // Hapus command dan alias lama dari registry
-    if (backupCommand) {
-        commands.delete(commandName);
-        const backupConfig = backupCommand.config || {};
-        if (backupConfig.name) commands.delete(backupConfig.name);
-        if (backupConfig.aliases && Array.isArray(backupConfig.aliases)) {
-            backupConfig.aliases.forEach(alias => commands.delete(alias));
+    for (const [key, cmd] of commands.entries()) {
+        if (cmd.filePath === filePath) {
+            commands.delete(key);
         }
     }
 
@@ -52,7 +49,7 @@ async function loadSingleCommand(filePath) {
         }
         console.log(`[HOT-RELOAD] Berhasil memuat: ${commandName}`);
     } catch (error) {
-        console.error(`[HOT-RELOAD] Gagal memuat: ${commandName} -> ${error.message}`);
+        console.error(`\n[HOT-RELOAD ERROR]\nModule: ${commandName}\nCause: ${error.stack}\n`);
         // Restore backup jika gagal
         if (backupCommand) {
             commands.set(commandName, backupCommand);
@@ -123,14 +120,14 @@ function watchModules() {
                 } else {
                     // File dihapus
                     const commandName = basename(filename, '.js');
-                    const command = commands.get(commandName);
-                    if (command) {
-                        commands.delete(commandName);
-                        const moduleConfig = command.config || {};
-                        if (moduleConfig.name) commands.delete(moduleConfig.name);
-                        if (moduleConfig.aliases && Array.isArray(moduleConfig.aliases)) {
-                            moduleConfig.aliases.forEach(alias => commands.delete(alias));
+                    let removed = false;
+                    for (const [key, cmd] of commands.entries()) {
+                        if (cmd.filePath === fullPath) {
+                            commands.delete(key);
+                            removed = true;
                         }
+                    }
+                    if (removed) {
                         console.log(`[HOT-RELOAD] Command dihapus: ${commandName}`);
                     }
                 }
