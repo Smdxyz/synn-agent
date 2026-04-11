@@ -13,7 +13,7 @@ import { randomBytes, createHash } from 'crypto';
 import { config } from './config.js';
 import FormData from 'form-data';
 import axios from 'axios';
-import baileysHelpers from 'baileys_helpers';
+import * as baileysHelpers from 'baileys_helpers';
 import { zip } from 'fflate';
 // Impor fungsi dari utils.js, termasuk 'sleep'
 import { getStream, toBuffer, sleep } from './libs/utils.js';

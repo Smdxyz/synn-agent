@@ -11,7 +11,10 @@ export const paths = {
     assets: path.join(ROOT_DIR, 'assets'),
     modules: path.join(ROOT_DIR, 'modules'),
     libs: path.join(ROOT_DIR, 'libs'),
-    auth: path.join(ROOT_DIR, 'auth_info_baileys')
+    auth: path.join(ROOT_DIR, 'auth_info_baileys'),
+    helper: path.join(ROOT_DIR, 'helper.js'),
+    config: path.join(ROOT_DIR, 'config.js'),
+    settings: path.join(ROOT_DIR, 'settings.js')
 };
 
 export default paths;
